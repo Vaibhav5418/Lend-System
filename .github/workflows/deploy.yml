@@ -1,0 +1,101 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  # ─── 1. Build and Validation Check ───────────────────────────────
+  validate:
+    name: Build & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            Lend-project/package.json
+            Lend-server/package.json
+
+      - name: Validate Frontend Build
+        working-directory: ./Lend-project
+        run: |
+          npm install
+          npm run build
+
+      - name: Validate Backend Dependencies
+        working-directory: ./Lend-server
+        run: |
+          npm install
+
+  # ─── 2. Deploy to EC2 via SSH ─────────────────────────────────────
+  deploy:
+    name: Deploy to EC2
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy on AWS EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            echo "🚀 Starting deployment on EC2..."
+            
+            # Navigate to project directory
+            cd /var/www/lend-system
+            
+            # Pull latest changes from main branch
+            echo "📥 Pulling latest code..."
+            git reset --hard HEAD
+            git pull origin main
+            
+            # Backend Setup
+            echo "⚙️ Updating backend..."
+            cd /var/www/lend-system/Lend-server
+            npm install --production
+            
+            # Restart or Start Backend with PM2
+            if pm2 describe lend-server > /dev/null 2>&1; then
+              echo "🔄 Reloading PM2 backend..."
+              pm2 reload lend-server --update-env
+            elif pm2 describe lend-backend > /dev/null 2>&1; then
+              echo "🔄 Reloading PM2 backend..."
+              pm2 reload lend-backend --update-env
+            else
+              echo "▶️ Starting PM2 backend..."
+              pm2 start server.js --name lend-server
+            fi
+            pm2 save
+            
+            # Frontend Setup & Build
+            echo "🎨 Building frontend..."
+            cd /var/www/lend-system/Lend-project
+            npm install
+            npm run build
+            
+            # Update Nginx config and permissions
+            echo "🌐 Updating Nginx..."
+            cd /var/www/lend-system
+            if [ -f "nginx.conf" ]; then
+              sudo cp nginx.conf /etc/nginx/sites-available/default
+              sudo ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+            fi
+            sudo chmod -R 755 /var/www/lend-system
+            sudo nginx -t
+            sudo systemctl reload nginx
+            
+            echo "✅ Deployment completed successfully!"
