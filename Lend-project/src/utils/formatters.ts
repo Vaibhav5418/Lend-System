@@ -6,9 +6,9 @@
  * 1,00,00,000 -> 1 Cr
  */
 export const formatIndianShort = (amount: number | string): string => {
-    const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+    const num = typeof amount === 'string' ? Number.parseFloat(amount) : amount;
 
-    if (isNaN(num) || num === 0) return '';
+    if (Number.isNaN(num) || num === 0) return '';
 
     const absNum = Math.abs(num);
     const sign = num < 0 ? '-' : '';

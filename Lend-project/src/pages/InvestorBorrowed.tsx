@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Filter, Eye, Calendar, TrendingUp, Users, CreditCard } from 'lucide-react';
 import { api } from '../api/client';
 import type { InvestorInvestment, InvestorPayment, UpcomingPayout, PaymentMode } from '../types';
@@ -36,24 +36,38 @@ export default function InvestorBorrowed() {
     remarks: '',
   });
 
+  const isMountedRef = useRef(true);
   useEffect(() => {
-    loadData();
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const [invData, payouts] = await Promise.all([
         api.getInvestorInvestments(),
         api.getUpcomingPayouts(),
       ]);
-      setInvestments(invData);
-      setUpcomingPayouts(payouts);
+      if (isMountedRef.current) {
+        setInvestments(invData);
+        setUpcomingPayouts(payouts);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const openPaymentModal = (inv: InvestorInvestment) => {
     setPayForm({
@@ -403,18 +417,18 @@ export default function InvestorBorrowed() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Payment Date</label>
-                  <input type="date" value={payForm.paymentDate} onChange={(e) => setPayForm({ ...payForm, paymentDate: e.target.value })}
+                  <label htmlFor="pay-payment-date" className="block text-sm font-medium text-slate-700 mb-1">Payment Date</label>
+                  <input id="pay-payment-date" type="date" value={payForm.paymentDate} onChange={(e) => setPayForm({ ...payForm, paymentDate: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label>
-                  <input type="date" value={payForm.dueDate} onChange={(e) => setPayForm({ ...payForm, dueDate: e.target.value })}
+                  <label htmlFor="pay-due-date" className="block text-sm font-medium text-slate-700 mb-1">Due Date</label>
+                  <input id="pay-due-date" type="date" value={payForm.dueDate} onChange={(e) => setPayForm({ ...payForm, dueDate: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Interest Paid (₹)</label>
-                  <input type="number" value={payForm.interestPaid} onChange={(e) => setPayForm({ ...payForm, interestPaid: e.target.value })}
+                  <label htmlFor="pay-interest-paid" className="block text-sm font-medium text-slate-700 mb-1">Interest Paid (₹)</label>
+                  <input id="pay-interest-paid" type="number" value={payForm.interestPaid} onChange={(e) => setPayForm({ ...payForm, interestPaid: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
                   {payForm.interestPaid && (
                     <p className="mt-1 text-xs text-violet-600 font-medium ml-1">
@@ -423,8 +437,8 @@ export default function InvestorBorrowed() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Principal Paid (₹)</label>
-                  <input type="number" value={payForm.principalPaid} onChange={(e) => setPayForm({ ...payForm, principalPaid: e.target.value })}
+                  <label htmlFor="pay-principal-paid" className="block text-sm font-medium text-slate-700 mb-1">Principal Paid (₹)</label>
+                  <input id="pay-principal-paid" type="number" value={payForm.principalPaid} onChange={(e) => setPayForm({ ...payForm, principalPaid: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="0 (on maturity)" />
                   {payForm.principalPaid && (
                     <p className="mt-1 text-xs text-violet-600 font-medium ml-1">
@@ -433,15 +447,15 @@ export default function InvestorBorrowed() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Payment Mode</label>
-                  <select value={payForm.paymentMode} onChange={(e) => setPayForm({ ...payForm, paymentMode: e.target.value as PaymentMode })}
+                  <label htmlFor="pay-payment-mode" className="block text-sm font-medium text-slate-700 mb-1">Payment Mode</label>
+                  <select id="pay-payment-mode" value={payForm.paymentMode} onChange={(e) => setPayForm({ ...payForm, paymentMode: e.target.value as PaymentMode })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
                     {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                  <select value={payForm.status} onChange={(e) => setPayForm({ ...payForm, status: e.target.value })}
+                  <label htmlFor="pay-status" className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                  <select id="pay-status" value={payForm.status} onChange={(e) => setPayForm({ ...payForm, status: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
                     <option value="Paid">Paid</option>
                     <option value="Pending">Pending</option>
@@ -450,14 +464,14 @@ export default function InvestorBorrowed() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
-                <textarea value={payForm.remarks} onChange={(e) => setPayForm({ ...payForm, remarks: e.target.value })} rows={2}
+                <label htmlFor="pay-remarks" className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
+                <textarea id="pay-remarks" value={payForm.remarks} onChange={(e) => setPayForm({ ...payForm, remarks: e.target.value })} rows={2}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setPaymentInv(null)} className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 text-sm font-medium">Cancel</button>
-              <button onClick={handleRecordPayment} disabled={submittingPayment}
+              <button onClick={() => { void handleRecordPayment(); }} disabled={submittingPayment}
                 className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm font-medium disabled:opacity-50">
                 {submittingPayment ? 'Recording...' : 'Record Payment'}
               </button>

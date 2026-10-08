@@ -122,7 +122,7 @@ export default function ForgotPassword() {
                 No worries! Enter your email address and we'll help you reset your password.
               </p>
 
-              <form onSubmit={handleVerifyEmail} className="space-y-5">
+              <form onSubmit={(e) => { void handleVerifyEmail(e); }} className="space-y-5">
                 {error && (
                   <div className="p-3 rounded-lg bg-rose-50 text-rose-700 text-sm font-medium">
                     {error}
@@ -130,10 +130,11 @@ export default function ForgotPassword() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Registered Email</label>
+                  <label htmlFor="forgot-email" className="block text-sm font-medium text-slate-700 mb-2">Registered Email</label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                     <input
+                      id="forgot-email"
                       type="email"
                       required
                       value={email}
@@ -164,7 +165,7 @@ export default function ForgotPassword() {
                 <span className="font-semibold text-slate-800">{email}</span>.
               </p>
 
-              <form onSubmit={handleResetPassword} className="space-y-5">
+              <form onSubmit={(e) => { void handleResetPassword(e); }} className="space-y-5">
                 {error && (
                   <div className="p-3 rounded-lg bg-rose-50 text-rose-700 text-sm font-medium">
                     {error}
@@ -172,10 +173,11 @@ export default function ForgotPassword() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">New password</label>
+                  <label htmlFor="forgot-password" className="block text-sm font-medium text-slate-700 mb-2">New password</label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                     <input
+                      id="forgot-password"
                       type="password"
                       required
                       value={password}
@@ -187,10 +189,11 @@ export default function ForgotPassword() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Confirm new password</label>
+                  <label htmlFor="forgot-confirm-password" className="block text-sm font-medium text-slate-700 mb-2">Confirm new password</label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                     <input
+                      id="forgot-confirm-password"
                       type="password"
                       required
                       value={confirmPassword}

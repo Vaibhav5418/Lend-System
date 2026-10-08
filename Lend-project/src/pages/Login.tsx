@@ -76,7 +76,7 @@ export default function Login() {
           <h2 className="text-2xl font-bold text-slate-900 mb-2">Welcome back</h2>
           <p className="text-slate-600 mb-8">Sign in to your account to continue</p>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5">
             {error && (
               <div className="p-3 rounded-lg bg-rose-50 text-rose-700 text-sm font-medium">
                 {error}
@@ -84,10 +84,11 @@ export default function Login() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-slate-700 mb-2">Email</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
+                  id="login-email"
                   type="email"
                   required
                   value={email}
@@ -100,7 +101,7 @@ export default function Login() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-slate-700">Password</label>
+                <label htmlFor="login-password" className="block text-sm font-medium text-slate-700">Password</label>
                 <Link
                   to="/forgot-password"
                   className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
@@ -111,6 +112,7 @@ export default function Login() {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
+                  id="login-password"
                   type="password"
                   required
                   value={password}

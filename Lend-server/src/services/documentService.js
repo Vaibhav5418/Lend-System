@@ -6,6 +6,7 @@ import os from 'os';
 import Document from '../models/Document.js';
 import { summarizeWithGrok, generateCombinedReport } from './grokService.js';
 import { createRequire } from 'module';
+import { sanitizeLog, isValidId, ID_PATTERNS } from '../utils/security.js';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
@@ -84,7 +85,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
       const data = await pdfParse(buffer);
       return data.text || null;
     } catch (e) {
-      console.error('PDF parse error:', e.message);
+      console.error('PDF parse error:', sanitizeLog(e.message));
       return null;
     }
   }
@@ -94,7 +95,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
       const result = await mammoth.extractRawText({ buffer });
       return (result?.value && result.value.trim()) ? result.value.trim() : null;
     } catch (e) {
-      console.error('Word (.docx) parse error:', e.message);
+      console.error('Word (.docx) parse error:', sanitizeLog(e.message));
       return null;
     }
   }
@@ -114,7 +115,7 @@ async function extractTextFromBuffer(buffer, mimeType) {
       }
       return parts.length ? parts.join('\n\n') : null;
     } catch (e) {
-      console.error('Excel parse error:', e.message);
+      console.error('Excel parse error:', sanitizeLog(e.message));
       return null;
     }
   }
@@ -131,6 +132,9 @@ async function extractTextFromBuffer(buffer, mimeType) {
  * @param {{ buffer: Buffer; originalname: string; mimetype: string }} file
  */
 export async function uploadInquiryDocument(inquiryId, file) {
+  if (!isValidId(inquiryId, ID_PATTERNS.inquiry)) {
+    throw new Error('Invalid inquiry ID format');
+  }
   const { buffer, originalname, mimetype } = file;
   const isRaw = useRawUpload(mimetype);
   const resourceType = isRaw ? 'raw' : 'auto';
@@ -148,8 +152,8 @@ export async function uploadInquiryDocument(inquiryId, file) {
       .from(SUPABASE_BUCKET)
       .upload(storagePath, buffer, { contentType: mimetype || 'application/octet-stream', upsert: false });
     if (error) {
-      console.error('Supabase upload error:', error);
-      throw new Error(error.message || 'Failed to upload large file to Supabase');
+      console.error('Supabase upload error:', sanitizeLog(error));
+      throw new Error('Failed to upload large file to storage');
     }
     const { data: urlData } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(data.path);
     const doc = await Document.create({
@@ -208,6 +212,7 @@ export async function uploadInquiryDocument(inquiryId, file) {
  * PDFs/raw docs are returned with /raw/upload/ URLs so they open inline in the browser (no fl_attachment).
  */
 export async function listInquiryDocuments(inquiryId) {
+  if (!isValidId(inquiryId, ID_PATTERNS.inquiry)) return [];
   const docs = await Document.find({ inquiryId }).sort({ uploadedAt: -1 }).lean();
   const config = getCloudinaryConfig();
   return docs.map((doc) => ensureInlinePdfUrl(doc, config));
@@ -235,6 +240,9 @@ export async function fetchDocumentBytes(cloudinaryUrl) {
  * Regenerate AI summary for a document: fetch file from Cloudinary, extract text, call Grok, update doc.
  */
 export async function regenerateDocumentSummary(inquiryId, docId) {
+  if (!isValidId(inquiryId, ID_PATTERNS.inquiry) || !isValidId(docId, ID_PATTERNS.document)) {
+    return null;
+  }
   const doc = await Document.findOne({ _id: docId, inquiryId });
   if (!doc) return null;
 
@@ -265,6 +273,7 @@ export async function regenerateDocumentSummary(inquiryId, docId) {
  * can be extracted (e.g. image), adds a short placeholder so the report is still "for all documents".
  */
 async function getCombinedDocumentContent(inquiryId) {
+  if (!isValidId(inquiryId, ID_PATTERNS.inquiry)) return '';
   const docs = await Document.find({ inquiryId }).sort({ uploadedAt: 1 }).lean();
   const parts = [];
   for (const doc of docs) {
@@ -282,7 +291,7 @@ async function getCombinedDocumentContent(inquiryId) {
         const text = await extractTextFromBuffer(buffer, mimeType);
         if (text && text.trim().length >= 10) content = text.trim();
       } catch (e) {
-        console.error('Fetch/extract for combined report:', e.message);
+        console.error('Fetch/extract for combined report:', sanitizeLog(e.message));
       }
     }
     const fileName = doc.fileName || 'Unnamed';
@@ -301,6 +310,9 @@ async function getCombinedDocumentContent(inquiryId) {
  * @returns {Promise<string>} Markdown with Company Profile, Financial Snapshot, GST Turnover Summary, Funding Readiness Assessment.
  */
 export async function generateCombinedReportForInquiry(inquiryId) {
+  if (!isValidId(inquiryId, ID_PATTERNS.inquiry)) {
+    return 'Invalid inquiry ID.';
+  }
   const combinedContent = await getCombinedDocumentContent(inquiryId);
   return generateCombinedReport(combinedContent);
 }
@@ -309,6 +321,9 @@ export async function generateCombinedReportForInquiry(inquiryId) {
  * Delete a document (DB + Cloudinary or Supabase storage).
  */
 export async function deleteInquiryDocument(inquiryId, docId) {
+  if (!isValidId(inquiryId, ID_PATTERNS.inquiry) || !isValidId(docId, ID_PATTERNS.document)) {
+    return null;
+  }
   const doc = await Document.findOne({ _id: docId, inquiryId });
   if (!doc) return null;
 
@@ -318,7 +333,7 @@ export async function deleteInquiryDocument(inquiryId, docId) {
       try {
         await supabase.storage.from(SUPABASE_BUCKET).remove([doc.publicId]);
       } catch (e) {
-        console.error('Supabase storage remove error:', e.message);
+        console.error('Supabase storage remove error:', sanitizeLog(e.message));
       }
     }
   } else {
@@ -335,7 +350,7 @@ export async function deleteInquiryDocument(inquiryId, docId) {
         });
       });
     } catch (e) {
-      console.error('Cloudinary destroy error:', e.message);
+      console.error('Cloudinary destroy error:', sanitizeLog(e.message));
     }
   }
 

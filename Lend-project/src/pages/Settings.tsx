@@ -63,8 +63,9 @@ export default function Settings() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
+                    <label htmlFor="settings-first-name" className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
                     <input
+                      id="settings-first-name"
                       type="text"
                       defaultValue="Amit"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -72,8 +73,9 @@ export default function Settings() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
+                    <label htmlFor="settings-last-name" className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
                     <input
+                      id="settings-last-name"
                       type="text"
                       defaultValue="Shah"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -81,10 +83,11 @@ export default function Settings() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <label htmlFor="settings-email" className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
+                        id="settings-email"
                         type="email"
                         defaultValue="amit.shah@lendflow.com"
                         className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -93,10 +96,11 @@ export default function Settings() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+                    <label htmlFor="settings-phone" className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
+                        id="settings-phone"
                         type="tel"
                         defaultValue="+91 98765 43210"
                         className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -105,8 +109,9 @@ export default function Settings() {
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                    <label htmlFor="settings-role" className="block text-sm font-medium text-gray-700 mb-2">Role</label>
                     <input
+                      id="settings-role"
                       type="text"
                       defaultValue="Senior Manager"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -129,10 +134,11 @@ export default function Settings() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
+                    <label htmlFor="settings-company-name" className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
                     <div className="relative">
                       <Building className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
+                        id="settings-company-name"
                         type="text"
                         defaultValue="Loanly"
                         className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -141,8 +147,8 @@ export default function Settings() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Industry</label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <label htmlFor="settings-industry" className="block text-sm font-medium text-gray-700 mb-2">Industry</label>
+                    <select id="settings-industry" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                       <option>Financial Services</option>
                       <option>Banking</option>
                       <option>NBFC</option>
@@ -161,20 +167,20 @@ export default function Settings() {
                 <div>
                   <h4 className="font-medium text-gray-900 mb-4">Email Notifications</h4>
                   <div className="space-y-3">
-                    <label className="flex items-center gap-3">
-                      <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
+                    <label htmlFor="notify-assign" className="flex items-center gap-3 cursor-pointer">
+                      <input id="notify-assign" type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
                       <span className="text-sm text-gray-700">New inquiry assignments</span>
                     </label>
-                    <label className="flex items-center gap-3">
-                      <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
+                    <label htmlFor="notify-reminders" className="flex items-center gap-3 cursor-pointer">
+                      <input id="notify-reminders" type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
                       <span className="text-sm text-gray-700">Follow-up reminders</span>
                     </label>
-                    <label className="flex items-center gap-3">
-                      <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" />
+                    <label htmlFor="notify-digest" className="flex items-center gap-3 cursor-pointer">
+                      <input id="notify-digest" type="checkbox" className="w-4 h-4 text-blue-600 rounded" />
                       <span className="text-sm text-gray-700">Daily digest</span>
                     </label>
-                    <label className="flex items-center gap-3">
-                      <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
+                    <label htmlFor="notify-stages" className="flex items-center gap-3 cursor-pointer">
+                      <input id="notify-stages" type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
                       <span className="text-sm text-gray-700">Stage updates</span>
                     </label>
                   </div>
@@ -183,16 +189,16 @@ export default function Settings() {
                 <div className="pt-6 border-t border-gray-200">
                   <h4 className="font-medium text-gray-900 mb-4">Push Notifications</h4>
                   <div className="space-y-3">
-                    <label className="flex items-center gap-3">
-                      <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
+                    <label htmlFor="push-priority" className="flex items-center gap-3 cursor-pointer">
+                      <input id="push-priority" type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
                       <span className="text-sm text-gray-700">Hot priority inquiries</span>
                     </label>
-                    <label className="flex items-center gap-3">
-                      <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
+                    <label htmlFor="push-docs" className="flex items-center gap-3 cursor-pointer">
+                      <input id="push-docs" type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
                       <span className="text-sm text-gray-700">Document uploads</span>
                     </label>
-                    <label className="flex items-center gap-3">
-                      <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" />
+                    <label htmlFor="push-mentions" className="flex items-center gap-3 cursor-pointer">
+                      <input id="push-mentions" type="checkbox" className="w-4 h-4 text-blue-600 rounded" />
                       <span className="text-sm text-gray-700">Team mentions</span>
                     </label>
                   </div>
@@ -214,24 +220,27 @@ export default function Settings() {
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
+                    <label htmlFor="settings-curr-password" className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
                     <input
+                      id="settings-curr-password"
                       type="password"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+                    <label htmlFor="settings-new-password" className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
                     <input
+                      id="settings-new-password"
                       type="password"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
+                    <label htmlFor="settings-confirm-password" className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
                     <input
+                      id="settings-confirm-password"
                       type="password"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -263,7 +272,7 @@ export default function Settings() {
 
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Theme</label>
+                  <span className="block text-sm font-medium text-gray-700 mb-3">Theme</span>
                   <div className="grid grid-cols-3 gap-4">
                     <div className="border-2 border-blue-600 rounded-lg p-4 cursor-pointer">
                       <div className="w-full h-20 bg-white border border-gray-200 rounded mb-2"></div>
@@ -281,7 +290,7 @@ export default function Settings() {
                 </div>
 
                 <div className="pt-6 border-t border-gray-200">
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Accent Color</label>
+                  <span className="block text-sm font-medium text-gray-700 mb-3">Accent Color</span>
                   <div className="flex gap-3">
                     <div className="w-10 h-10 bg-blue-600 rounded-lg cursor-pointer ring-2 ring-blue-600 ring-offset-2"></div>
                     <div className="w-10 h-10 bg-purple-600 rounded-lg cursor-pointer hover:ring-2 hover:ring-purple-600 hover:ring-offset-2"></div>

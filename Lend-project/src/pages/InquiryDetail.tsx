@@ -38,21 +38,47 @@ export default function InquiryDetail() {
 
   useEffect(() => {
     if (!id) return;
-    api
-      .getInquiry(id)
-      .then((data) => {
-        setInquiry(data);
-        if (data.combinedReportMarkdown) setCombinedReport(data.combinedReportMarkdown);
-        if (data.profileScore != null) setProfileScore(data.profileScore);
-        if (data.profileScoreRating) setProfileScoreRating(data.profileScoreRating);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    let isMounted = true;
+    const loadInquiry = async () => {
+      try {
+        const data = await api.getInquiry(id);
+        if (isMounted) {
+          setInquiry(data);
+          if (data.combinedReportMarkdown) setCombinedReport(data.combinedReportMarkdown);
+          if (data.profileScore != null) setProfileScore(data.profileScore);
+          if (data.profileScoreRating) setProfileScoreRating(data.profileScoreRating);
+        }
+      } catch (e) {
+        if (isMounted) {
+          setError(e instanceof Error ? e.message : 'Failed to load inquiry');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+    void loadInquiry();
+    return () => {
+      isMounted = false;
+    };
   }, [id]);
 
   useEffect(() => {
     if (!id) return;
-    api.getInquiryDocuments(id).then(setDocuments).catch(() => setDocuments([]));
+    let isMounted = true;
+    const loadDocs = async () => {
+      try {
+        const docs = await api.getInquiryDocuments(id);
+        if (isMounted) setDocuments(docs);
+      } catch {
+        if (isMounted) setDocuments([]);
+      }
+    };
+    void loadDocs();
+    return () => {
+      isMounted = false;
+    };
   }, [id]);
 
   useEffect(() => {
@@ -66,19 +92,33 @@ export default function InquiryDetail() {
       setViewingPdfError(null);
       return;
     }
+    let isMounted = true;
     setViewingPdfLoading(true);
     setViewingPdfError(null);
-    api
-      .getDocumentViewBlob(id, viewingPdf.docId)
-      .then((blob) => {
-        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-        const url = URL.createObjectURL(blob);
-        blobUrlRef.current = url;
-        setViewingPdfUrl(url);
-        setViewingPdfError(null);
-      })
-      .catch((e) => setViewingPdfError(e instanceof Error ? e.message : 'Failed to load document'))
-      .finally(() => setViewingPdfLoading(false));
+    const loadPdf = async () => {
+      try {
+        const blob = await api.getDocumentViewBlob(id, viewingPdf.docId);
+        if (isMounted) {
+          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+          const url = URL.createObjectURL(blob);
+          blobUrlRef.current = url;
+          setViewingPdfUrl(url);
+          setViewingPdfError(null);
+        }
+      } catch (e) {
+        if (isMounted) {
+          setViewingPdfError(e instanceof Error ? e.message : 'Failed to load document');
+        }
+      } finally {
+        if (isMounted) {
+          setViewingPdfLoading(false);
+        }
+      }
+    };
+    void loadPdf();
+    return () => {
+      isMounted = false;
+    };
   }, [id, viewingPdf?.docId]);
 
   const MAX_FILE_SIZE_MB = 100; // Files ≤10 MB → Cloudinary; >10 MB → Supabase
@@ -221,7 +261,7 @@ export default function InquiryDetail() {
               </button>
               <button
                 type="button"
-                onClick={handleDeleteInquiry}
+                onClick={() => { void handleDeleteInquiry(); }}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-rose-200 bg-rose-50 text-rose-700 text-sm font-medium hover:bg-rose-100 transition-colors shadow-sm"
               >
                 <Trash2 className="w-4 h-4" />
@@ -517,7 +557,7 @@ export default function InquiryDetail() {
                       </p>
                       <button
                         type="button"
-                        onClick={handleGenerateCombinedReport}
+                        onClick={() => { void handleGenerateCombinedReport(); }}
                         disabled={combinedReportLoading || documents.length === 0}
                         className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 border-violet-300 bg-violet-50 text-violet-800 text-sm font-semibold hover:bg-violet-100 hover:border-violet-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -549,7 +589,7 @@ export default function InquiryDetail() {
                       <button
                         key={p}
                         type="button"
-                        onClick={() => handleChangePriority(p)}
+                        onClick={() => { void handleChangePriority(p); }}
                         disabled={updatingPriority || inquiry?.priority === p}
                         className={`w-full px-3 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50 ${inquiry?.priority === p
                           ? 'border-amber-400 bg-amber-100 text-amber-900 cursor-default'
@@ -594,7 +634,7 @@ export default function InquiryDetail() {
                 {documents.length > 0 && inquiry.type !== 'Investor' && (
                   <button
                     type="button"
-                    onClick={handleGenerateCombinedReport}
+                    onClick={() => { void handleGenerateCombinedReport(); }}
                     disabled={combinedReportLoading}
                     className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 rounded-lg border border-violet-200/80 transition-colors disabled:opacity-50"
                     title="Generate combined table report below (Company Profile, Financial Snapshot, GST Turnover, Funding Readiness)"
@@ -680,7 +720,7 @@ export default function InquiryDetail() {
                               {inquiry.type !== 'Investor' && (
                                 <button
                                   type="button"
-                                  onClick={() => handleGenerateSummary(doc._id)}
+                                  onClick={() => { void handleGenerateSummary(doc._id); }}
                                   disabled={generatingDocId !== null}
                                   className="p-1.5 text-violet-600 hover:text-violet-800 hover:bg-violet-50 rounded-lg transition-colors disabled:opacity-50"
                                   title="Generate AI summary for this document"
@@ -690,7 +730,7 @@ export default function InquiryDetail() {
                               )}
                               <button
                                 type="button"
-                                onClick={() => handleDeleteDoc(doc._id)}
+                                onClick={() => { void handleDeleteDoc(doc._id); }}
                                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                                 title="Delete"
                               >
@@ -714,16 +754,24 @@ export default function InquiryDetail() {
         {/* PDF viewer modal – fetch with auth then show via blob URL */}
         {viewingPdf && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-            onClick={() => setViewingPdf(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
             role="dialog"
             aria-modal="true"
             aria-label="View PDF"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setViewingPdf(null);
+            }}
           >
-            <div
-              className="bg-white rounded-xl shadow-xl flex flex-col max-w-4xl w-full max-h-[90vh]"
-              onClick={(e) => e.stopPropagation()}
-            >
+            {/* Native backdrop button */}
+            <button
+              type="button"
+              className="fixed inset-0 bg-black/60 border-0 p-0 m-0 w-full h-full cursor-default"
+              onClick={() => setViewingPdf(null)}
+              aria-label="Close document preview"
+              tabIndex={-1}
+            />
+            {/* Modal content dialog - native non-clickable container */}
+            <div className="relative z-10 bg-white rounded-xl shadow-xl flex flex-col max-w-4xl w-full max-h-[90vh]">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50/50">
                 <span className="text-sm font-semibold text-slate-800 truncate">{viewingPdf.name}</span>
                 <button

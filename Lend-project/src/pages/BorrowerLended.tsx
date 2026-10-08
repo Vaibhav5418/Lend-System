@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Filter, Eye, Calendar, TrendingUp, Users, AlertTriangle, Receipt } from 'lucide-react';
 import { api } from '../api/client';
 import type { BorrowerLoan, UpcomingDue, PaymentMode, CollectionStatus } from '../types';
@@ -38,22 +38,38 @@ export default function BorrowerLended() {
     remarks: '',
   });
 
-  useEffect(() => { loadData(); }, []);
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const [loanData, dues] = await Promise.all([
         api.getBorrowerLoans(),
         api.getUpcomingDues(),
       ]);
-      setLoans(loanData);
-      setUpcomingDues(dues);
+      if (isMountedRef.current) {
+        setLoans(loanData);
+        setUpcomingDues(dues);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const openCollectionModal = (loan: BorrowerLoan) => {
     setColForm({
@@ -359,18 +375,18 @@ export default function BorrowerLended() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Payment Date</label>
-                  <input type="date" value={colForm.paymentDate} onChange={(e) => setColForm({ ...colForm, paymentDate: e.target.value })}
+                  <label htmlFor="col-payment-date" className="block text-sm font-medium text-slate-700 mb-1">Payment Date</label>
+                  <input id="col-payment-date" type="date" value={colForm.paymentDate} onChange={(e) => setColForm({ ...colForm, paymentDate: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Schedule Month</label>
-                  <input type="number" value={colForm.scheduleMonth} onChange={(e) => setColForm({ ...colForm, scheduleMonth: e.target.value })}
+                  <label htmlFor="col-schedule-month" className="block text-sm font-medium text-slate-700 mb-1">Schedule Month</label>
+                  <input id="col-schedule-month" type="number" value={colForm.scheduleMonth} onChange={(e) => setColForm({ ...colForm, scheduleMonth: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="e.g. 3" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Interest Paid (₹)</label>
-                  <input type="number" value={colForm.interestPaid} onChange={(e) => setColForm({ ...colForm, interestPaid: e.target.value })}
+                  <label htmlFor="col-interest-paid" className="block text-sm font-medium text-slate-700 mb-1">Interest Paid (₹)</label>
+                  <input id="col-interest-paid" type="number" value={colForm.interestPaid} onChange={(e) => setColForm({ ...colForm, interestPaid: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
                   {colForm.interestPaid && (
                     <p className="mt-1 text-xs text-sky-600 font-medium ml-1">
@@ -379,8 +395,8 @@ export default function BorrowerLended() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Principal Paid (₹)</label>
-                  <input type="number" value={colForm.principalPaid} onChange={(e) => setColForm({ ...colForm, principalPaid: e.target.value })}
+                  <label htmlFor="col-principal-paid" className="block text-sm font-medium text-slate-700 mb-1">Principal Paid (₹)</label>
+                  <input id="col-principal-paid" type="number" value={colForm.principalPaid} onChange={(e) => setColForm({ ...colForm, principalPaid: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="0" />
                   {colForm.principalPaid && (
                     <p className="mt-1 text-xs text-sky-600 font-medium ml-1">
@@ -389,8 +405,8 @@ export default function BorrowerLended() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Penalty (₹)</label>
-                  <input type="number" value={colForm.penalty} onChange={(e) => setColForm({ ...colForm, penalty: e.target.value })}
+                  <label htmlFor="col-penalty" className="block text-sm font-medium text-slate-700 mb-1">Penalty (₹)</label>
+                  <input id="col-penalty" type="number" value={colForm.penalty} onChange={(e) => setColForm({ ...colForm, penalty: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="0" />
                   {colForm.penalty && (
                     <p className="mt-1 text-xs text-rose-600 font-medium ml-1">
@@ -399,15 +415,15 @@ export default function BorrowerLended() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Payment Mode</label>
-                  <select value={colForm.paymentMode} onChange={(e) => setColForm({ ...colForm, paymentMode: e.target.value as PaymentMode })}
+                  <label htmlFor="col-payment-mode" className="block text-sm font-medium text-slate-700 mb-1">Payment Mode</label>
+                  <select id="col-payment-mode" value={colForm.paymentMode} onChange={(e) => setColForm({ ...colForm, paymentMode: e.target.value as PaymentMode })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
                     {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                  <select value={colForm.status} onChange={(e) => setColForm({ ...colForm, status: e.target.value as CollectionStatus })}
+                  <label htmlFor="col-status" className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                  <select id="col-status" value={colForm.status} onChange={(e) => setColForm({ ...colForm, status: e.target.value as CollectionStatus })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
                     <option value="Received">Received</option>
                     <option value="Pending">Pending</option>
@@ -416,8 +432,8 @@ export default function BorrowerLended() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Pending Amount (₹)</label>
-                  <input type="number" value={colForm.pendingAmount} onChange={(e) => setColForm({ ...colForm, pendingAmount: e.target.value })}
+                  <label htmlFor="col-pending-amount" className="block text-sm font-medium text-slate-700 mb-1">Pending Amount (₹)</label>
+                  <input id="col-pending-amount" type="number" value={colForm.pendingAmount} onChange={(e) => setColForm({ ...colForm, pendingAmount: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="0" />
                   {colForm.pendingAmount && (
                     <p className="mt-1 text-xs text-amber-600 font-medium ml-1">
@@ -427,15 +443,15 @@ export default function BorrowerLended() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
-                <textarea value={colForm.remarks} onChange={(e) => setColForm({ ...colForm, remarks: e.target.value })} rows={2}
+                <label htmlFor="col-remarks" className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
+                <textarea id="col-remarks" value={colForm.remarks} onChange={(e) => setColForm({ ...colForm, remarks: e.target.value })} rows={2}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setCollectionLoan(null)}
                 className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 text-sm font-medium">Cancel</button>
-              <button onClick={handleRecordCollection} disabled={submittingCol}
+              <button onClick={() => { void handleRecordCollection(); }} disabled={submittingCol}
                 className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 text-sm font-medium disabled:opacity-50">
                 {submittingCol ? 'Recording...' : 'Record Collection'}
               </button>

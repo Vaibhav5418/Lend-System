@@ -22,18 +22,29 @@ export default function InvestorPayments() {
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => { loadData(); }, []);
-
-  async function loadData() {
-    try {
-      const payData = await api.getInvestorPayments();
-      setPayments(payData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const payData = await api.getInvestorPayments();
+        if (isMounted) {
+          setPayments(payData);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : 'Failed to load');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+    void load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filtered = payments
     .filter((p) => statusFilter === 'All' || p.status === statusFilter)
@@ -78,6 +89,7 @@ export default function InvestorPayments() {
           <input
             type="text"
             placeholder="Search investor name or ID..."
+            aria-label="Search investor name or ID"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full sm:w-auto min-w-0 px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
@@ -85,6 +97,7 @@ export default function InvestorPayments() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter payments by status"
             className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
           >
             <option value="All">All Status</option>

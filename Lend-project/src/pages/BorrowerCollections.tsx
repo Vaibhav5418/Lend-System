@@ -22,18 +22,29 @@ export default function BorrowerCollections() {
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => { loadData(); }, []);
-
-  async function loadData() {
-    try {
-      const colData = await api.getBorrowerCollections();
-      setCollections(colData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const colData = await api.getBorrowerCollections();
+        if (isMounted) {
+          setCollections(colData);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : 'Failed to load');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+    void load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filtered = collections
     .filter((c) => statusFilter === 'All' || c.status === statusFilter)
@@ -86,9 +97,11 @@ export default function BorrowerCollections() {
             <span className="text-sm font-medium text-slate-700">Filters:</span>
           </div>
           <input type="text" placeholder="Search borrower, loan ID..."
+            aria-label="Search borrower or loan ID"
             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full sm:w-auto min-w-0 px-3 py-1.5 border border-slate-300 rounded-lg text-sm" />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter collections by status"
             className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm">
             <option value="All">All Status</option>
             <option value="Received">Received</option>

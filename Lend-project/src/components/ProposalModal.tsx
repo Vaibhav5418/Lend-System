@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import type { Inquiry, Proposal } from '../types';
 
@@ -28,20 +28,32 @@ export default function ProposalModal({ inquiry, onClose, onAccepted, onDataChan
   });
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
 
+  const isMountedRef = useRef(true);
   useEffect(() => {
-    loadProposals();
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  async function loadProposals() {
+  const loadProposals = useCallback(async () => {
     try {
       const data = await api.getProposals(inquiry.id);
-      setProposals(data);
+      if (isMountedRef.current) {
+        setProposals(data);
+      }
     } catch {
       // ignore
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
-  }
+  }, [inquiry.id]);
+
+  useEffect(() => {
+    void loadProposals();
+  }, [loadProposals]);
 
   const handleSendProposal = async () => {
     setSubmitting(true);
@@ -143,26 +155,27 @@ export default function ProposalModal({ inquiry, onClose, onAccepted, onDataChan
           <div className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Proposed Amount (₹)</label>
-                <input type="number" value={form.proposedLoanAmount}
+                <label htmlFor="prop-loan-amount" className="block text-sm font-medium text-slate-700 mb-1">Proposed Amount (₹)</label>
+                <input id="prop-loan-amount" type="number" value={form.proposedLoanAmount}
                   onChange={(e) => setForm({ ...form, proposedLoanAmount: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Interest Rate (%)</label>
-                <input type="number" step="0.1" value={form.proposedInterestRate}
+                <label htmlFor="prop-interest-rate" className="block text-sm font-medium text-slate-700 mb-1">Interest Rate (%)</label>
+                <input id="prop-interest-rate" type="number" step="0.1" value={form.proposedInterestRate}
                   onChange={(e) => setForm({ ...form, proposedInterestRate: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tenure (months)</label>
-                <input type="number" value={form.proposedTenure}
+                <label htmlFor="prop-tenure" className="block text-sm font-medium text-slate-700 mb-1">Tenure (months)</label>
+                <input id="prop-tenure" type="number" value={form.proposedTenure}
                   onChange={(e) => setForm({ ...form, proposedTenure: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Frequency</label>
+                <label htmlFor="prop-frequency" className="block text-sm font-medium text-slate-700 mb-1">Frequency</label>
                 <select
+                  id="prop-frequency"
                   value={form.proposedFrequency}
                   onChange={(e) => setForm({ ...form, proposedFrequency: e.target.value as any })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
@@ -175,14 +188,14 @@ export default function ProposalModal({ inquiry, onClose, onAccepted, onDataChan
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
-              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3}
+              <label htmlFor="prop-notes" className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+              <textarea id="prop-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={onClose}
                 className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 text-sm font-medium">Cancel</button>
-              <button onClick={handleSendProposal} disabled={submitting}
+              <button onClick={() => { void handleSendProposal(); }} disabled={submitting}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
                 {submitting ? 'Sending...' : 'Send Proposal'}
               </button>
@@ -228,11 +241,11 @@ export default function ProposalModal({ inquiry, onClose, onAccepted, onDataChan
 
                   {p.status === 'Sent' && (
                     <div className="flex gap-2 mt-3">
-                      <button onClick={() => handleAcceptProposal(p.id)} disabled={submitting}
+                      <button onClick={() => { void handleAcceptProposal(p.id); }} disabled={submitting}
                         className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-50">
                         Accept Proposal
                       </button>
-                      <button onClick={() => handleRejectProposal(p.id)} disabled={submitting}
+                      <button onClick={() => { void handleRejectProposal(p.id); }} disabled={submitting}
                         className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 disabled:opacity-50">
                         Reject
                       </button>

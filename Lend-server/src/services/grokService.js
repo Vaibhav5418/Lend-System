@@ -1,3 +1,5 @@
+import { sanitizeLog } from '../utils/security.js';
+
 /**
  * Groq API summarization. Uses OpenAI-compatible Chat Completions.
  * Set GROQ_API_KEY in .env. Optionally GROQ_MODEL (e.g. llama-3.1-8b-instant, llama-3.3-70b-versatile).
@@ -29,7 +31,7 @@ function parseRetryAfterMs(errStr) {
   if (!errStr || typeof errStr !== 'string') return null;
   const m = errStr.match(/please try again in ([\d.]+)\s*s/i);
   if (!m) return null;
-  const sec = parseFloat(m[1]);
+  const sec = Number.parseFloat(m[1]);
   if (Number.isNaN(sec) || sec <= 0) return null;
   const ms = Math.ceil(Math.min(90, Math.max(30, sec)) * 1000);
   return ms;
@@ -165,7 +167,7 @@ export async function summarizeWithGrok(text) {
 
   const errText = await response.text();
   if (!response.ok) {
-    console.error('Groq API error:', response.status, errText);
+    console.error('Groq API error:', response.status, sanitizeLog(errText));
     try {
       const errJson = JSON.parse(errText);
       const msg = errJson?.error ?? errJson?.message ?? errText.slice(0, 200);
@@ -173,7 +175,7 @@ export async function summarizeWithGrok(text) {
       if (response.status === 401 && /invalid|unauthorized|api key/i.test(errStr)) {
         return 'Summary unavailable (invalid Groq API key). Set a valid GROQ_API_KEY in server/.env from https://console.groq.com';
       }
-      return `Summary unavailable (${errStr}). Use the AI button to retry.`;
+      return `Summary unavailable (${sanitizeLog(errStr, 100)}). Use the AI button to retry.`;
     } catch {
       return `Summary unavailable (API error: ${response.status}). Use the AI button to retry.`;
     }

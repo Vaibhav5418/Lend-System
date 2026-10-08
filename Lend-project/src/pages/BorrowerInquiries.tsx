@@ -196,7 +196,7 @@ export default function BorrowerInquiries() {
               onDragEnter={(e) => handleDragEnter(e, col.key)}
               onDragLeave={(e) => handleDragLeave(e, col.key)}
               onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, col.key)}
+              onDrop={(e) => { void handleDrop(e, col.key); }}
               className={`flex-shrink-0 w-[300px] rounded-xl border ${col.color} flex flex-col max-h-[75vh] transition-all duration-150 ${dragOverCol === col.key && draggingId ? 'ring-2 ring-sky-400 ring-offset-2 scale-[1.01]' : ''
                 }`}
             >
@@ -307,8 +307,9 @@ export default function BorrowerInquiries() {
             </p>
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Interest Rate (%)</label>
+                <label htmlFor="borrower-inq-rate" className="block text-sm font-medium text-slate-700 mb-1">Interest Rate (%)</label>
                 <input
+                  id="borrower-inq-rate"
                   type="number"
                   step="0.1"
                   value={approveForm.interestRate}
@@ -317,8 +318,9 @@ export default function BorrowerInquiries() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Rate Type</label>
+                <label htmlFor="borrower-inq-rate-type" className="block text-sm font-medium text-slate-700 mb-1">Rate Type</label>
                 <select
+                  id="borrower-inq-rate-type"
                   value={approveForm.interestRateType}
                   onChange={(e) => setApproveForm({ ...approveForm, interestRateType: e.target.value as 'monthly' | 'yearly' })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
@@ -328,8 +330,9 @@ export default function BorrowerInquiries() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tenure (months)</label>
+                <label htmlFor="borrower-inq-tenure" className="block text-sm font-medium text-slate-700 mb-1">Tenure (months)</label>
                 <input
+                  id="borrower-inq-tenure"
                   type="number"
                   value={approveForm.tenureMonths}
                   onChange={(e) => setApproveForm({ ...approveForm, tenureMonths: e.target.value })}
@@ -337,8 +340,9 @@ export default function BorrowerInquiries() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Repayment Type</label>
+                <label htmlFor="borrower-inq-repay-type" className="block text-sm font-medium text-slate-700 mb-1">Repayment Type</label>
                 <select
+                  id="borrower-inq-repay-type"
                   value={approveForm.repaymentType}
                   onChange={(e) => setApproveForm({ ...approveForm, repaymentType: e.target.value as 'Interest-Only' | 'Bullet' })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
@@ -348,8 +352,9 @@ export default function BorrowerInquiries() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Repayment Frequency</label>
+                <label htmlFor="borrower-inq-repay-freq" className="block text-sm font-medium text-slate-700 mb-1">Repayment Frequency</label>
                 <select
+                  id="borrower-inq-repay-freq"
                   value={approveForm.repaymentFrequency}
                   onChange={(e) => setApproveForm({ ...approveForm, repaymentFrequency: e.target.value as any })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
@@ -361,8 +366,9 @@ export default function BorrowerInquiries() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                <label htmlFor="borrower-inq-start-date" className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
                 <input
+                  id="borrower-inq-start-date"
                   type="date"
                   value={approveForm.startDate}
                   onChange={(e) => setApproveForm({ ...approveForm, startDate: e.target.value })}
@@ -371,8 +377,9 @@ export default function BorrowerInquiries() {
               </div>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+              <label htmlFor="borrower-inq-notes" className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
               <textarea
+                id="borrower-inq-notes"
                 value={approveForm.notes}
                 onChange={(e) => setApproveForm({ ...approveForm, notes: e.target.value })}
                 rows={2}
@@ -385,7 +392,7 @@ export default function BorrowerInquiries() {
                 className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 text-sm font-medium"
               >Cancel</button>
               <button
-                onClick={handleApproveLoan}
+                onClick={() => { void handleApproveLoan(); }}
                 disabled={approving}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
               >{approving ? 'Approving...' : 'Approve & Create Loan'}</button>

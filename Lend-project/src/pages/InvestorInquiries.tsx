@@ -186,7 +186,7 @@ export default function InvestorInquiries() {
               onDragEnter={(e) => handleDragEnter(e, col.key)}
               onDragLeave={(e) => handleDragLeave(e, col.key)}
               onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, col.key)}
+              onDrop={(e) => { void handleDrop(e, col.key); }}
               className={`flex-shrink-0 w-[300px] rounded-xl border ${col.color} flex flex-col max-h-[75vh] transition-all duration-150 ${dragOverCol === col.key && draggingId ? 'ring-2 ring-violet-400 ring-offset-2 scale-[1.01]' : ''
                 }`}
             >
@@ -286,8 +286,9 @@ export default function InvestorInquiries() {
             </p>
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Interest Rate (%)</label>
+                <label htmlFor="investor-inq-rate" className="block text-sm font-medium text-slate-700 mb-1">Interest Rate (%)</label>
                 <input
+                  id="investor-inq-rate"
                   type="number"
                   step="0.1"
                   value={acceptForm.interestRate}
@@ -296,8 +297,9 @@ export default function InvestorInquiries() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Rate Type</label>
+                <label htmlFor="investor-inq-rate-type" className="block text-sm font-medium text-slate-700 mb-1">Rate Type</label>
                 <select
+                  id="investor-inq-rate-type"
                   value={acceptForm.interestRateType}
                   onChange={(e) => setAcceptForm({ ...acceptForm, interestRateType: e.target.value as 'monthly' | 'yearly' })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
@@ -307,8 +309,9 @@ export default function InvestorInquiries() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tenure (months)</label>
+                <label htmlFor="investor-inq-tenure" className="block text-sm font-medium text-slate-700 mb-1">Tenure (months)</label>
                 <input
+                  id="investor-inq-tenure"
                   type="number"
                   value={acceptForm.tenureMonths}
                   onChange={(e) => setAcceptForm({ ...acceptForm, tenureMonths: e.target.value })}
@@ -316,8 +319,9 @@ export default function InvestorInquiries() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Payout Frequency</label>
+                <label htmlFor="investor-inq-payout-freq" className="block text-sm font-medium text-slate-700 mb-1">Payout Frequency</label>
                 <select
+                  id="investor-inq-payout-freq"
                   value={acceptForm.payoutFrequency}
                   onChange={(e) => setAcceptForm({ ...acceptForm, payoutFrequency: e.target.value as 'monthly' | 'quarterly' | 'on_maturity' })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
@@ -328,8 +332,9 @@ export default function InvestorInquiries() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Investment Plan</label>
+                <label htmlFor="investor-inq-plan" className="block text-sm font-medium text-slate-700 mb-1">Investment Plan</label>
                 <select
+                  id="investor-inq-plan"
                   value={acceptForm.investmentPlan}
                   onChange={(e) => setAcceptForm({ ...acceptForm, investmentPlan: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
@@ -342,8 +347,9 @@ export default function InvestorInquiries() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                <label htmlFor="investor-inq-start-date" className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
                 <input
+                  id="investor-inq-start-date"
                   type="date"
                   value={acceptForm.startDate}
                   onChange={(e) => setAcceptForm({ ...acceptForm, startDate: e.target.value })}
@@ -352,8 +358,9 @@ export default function InvestorInquiries() {
               </div>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+              <label htmlFor="investor-inq-notes" className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
               <textarea
+                id="investor-inq-notes"
                 value={acceptForm.notes}
                 onChange={(e) => setAcceptForm({ ...acceptForm, notes: e.target.value })}
                 rows={2}
@@ -366,7 +373,7 @@ export default function InvestorInquiries() {
                 className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 text-sm font-medium"
               >Cancel</button>
               <button
-                onClick={handleAccept}
+                onClick={() => { void handleAccept(); }}
                 disabled={!!accepting}
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
               >{accepting ? 'Accepting...' : 'Accept & Activate'}</button>

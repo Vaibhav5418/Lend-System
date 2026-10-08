@@ -19,6 +19,9 @@ export function authMiddleware(req, res, next) {
   }
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded?.userId || typeof decoded.userId !== 'string' || !/^[a-f0-9]{24}$/i.test(decoded.userId)) {
+      return res.status(401).json({ error: 'Invalid token payload' });
+    }
     User.findById(decoded.userId)
       .then((user) => {
         if (!user) return res.status(401).json({ error: 'User not found' });

@@ -48,7 +48,7 @@ export function InquiryCacheProvider({ children }: { children: ReactNode }) {
   }, [inquiries.length]);
 
   useEffect(() => {
-    refetch();
+    void refetch();
   }, [refetch]);
 
   const value: InquiryCacheState = {

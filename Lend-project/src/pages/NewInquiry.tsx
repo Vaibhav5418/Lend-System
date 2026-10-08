@@ -95,10 +95,10 @@ export default function NewInquiry() {
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-6">
           {/* Inquiry Type Toggle */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">Inquiry Type</label>
+            <span className="block text-sm font-medium text-gray-700 mb-3">Inquiry Type</span>
             <div className="flex gap-4">
               <button
                 type="button"
@@ -128,8 +128,9 @@ export default function NewInquiry() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                <label htmlFor="new-inq-name" className="block text-sm font-medium text-gray-700 mb-2">Name</label>
                 <input
+                  id="new-inq-name"
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -139,8 +140,9 @@ export default function NewInquiry() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Mobile</label>
+                <label htmlFor="new-inq-mobile" className="block text-sm font-medium text-gray-700 mb-2">Mobile</label>
                 <input
+                  id="new-inq-mobile"
                   type="tel"
                   value={formData.mobile}
                   onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
@@ -150,8 +152,9 @@ export default function NewInquiry() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                <label htmlFor="new-inq-email" className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                 <input
+                  id="new-inq-email"
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -161,8 +164,9 @@ export default function NewInquiry() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
+                <label htmlFor="new-inq-city" className="block text-sm font-medium text-gray-700 mb-2">City</label>
                 <input
+                  id="new-inq-city"
                   type="text"
                   value={formData.city}
                   onChange={(e) => setFormData({ ...formData, city: e.target.value })}
@@ -172,8 +176,9 @@ export default function NewInquiry() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Source</label>
+                <label htmlFor="new-inq-source" className="block text-sm font-medium text-gray-700 mb-2">Source</label>
                 <select
+                  id="new-inq-source"
                   value={formData.source}
                   onChange={(e) => setFormData({ ...formData, source: e.target.value as Source })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -188,8 +193,9 @@ export default function NewInquiry() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                <label htmlFor="new-inq-priority" className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
                 <select
+                  id="new-inq-priority"
                   value={formData.priority}
                   onChange={(e) => setFormData({ ...formData, priority: e.target.value as Priority })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -212,10 +218,11 @@ export default function NewInquiry() {
               {inquiryType === 'Borrower' ? (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="new-inq-loan-amount" className="block text-sm font-medium text-gray-700 mb-2">
                       Loan Amount Required (₹)
                     </label>
                     <input
+                      id="new-inq-loan-amount"
                       type="number"
                       value={formData.loanAmount}
                       onChange={(e) => setFormData({ ...formData, loanAmount: e.target.value })}
@@ -230,10 +237,11 @@ export default function NewInquiry() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="new-inq-tenure" className="block text-sm font-medium text-gray-700 mb-2">
                       Tenure (months)
                     </label>
                     <input
+                      id="new-inq-tenure"
                       type="number"
                       value={formData.tenure}
                       onChange={(e) => setFormData({ ...formData, tenure: e.target.value })}
@@ -243,8 +251,9 @@ export default function NewInquiry() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Turnover (₹)</label>
+                    <label htmlFor="new-inq-turnover" className="block text-sm font-medium text-gray-700 mb-2">Turnover (₹)</label>
                     <input
+                      id="new-inq-turnover"
                       type="text"
                       value={formData.turnover}
                       onChange={(e) => setFormData({ ...formData, turnover: e.target.value })}
@@ -259,10 +268,11 @@ export default function NewInquiry() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="new-inq-proposed-interest" className="block text-sm font-medium text-gray-700 mb-2">
                       Proposed Interest Rate (%)
                     </label>
                     <input
+                      id="new-inq-proposed-interest"
                       type="number"
                       step="0.1"
                       value={formData.proposedInterest}
@@ -273,8 +283,9 @@ export default function NewInquiry() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Repayment Frequency</label>
+                    <label htmlFor="new-inq-borrower-freq" className="block text-sm font-medium text-gray-700 mb-2">Repayment Frequency</label>
                     <select
+                      id="new-inq-borrower-freq"
                       value={formData.borrowerFrequency}
                       onChange={(e) => setFormData({ ...formData, borrowerFrequency: e.target.value as any })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -289,10 +300,11 @@ export default function NewInquiry() {
               ) : (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="new-inq-investment-amount" className="block text-sm font-medium text-gray-700 mb-2">
                       Investment Amount (₹)
                     </label>
                     <input
+                      id="new-inq-investment-amount"
                       type="number"
                       value={formData.investmentAmount}
                       onChange={(e) => setFormData({ ...formData, investmentAmount: e.target.value })}
@@ -307,10 +319,11 @@ export default function NewInquiry() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="new-inq-expected-interest" className="block text-sm font-medium text-gray-700 mb-2">
                       Expected Interest Rate (%)
                     </label>
                     <input
+                      id="new-inq-expected-interest"
                       type="number"
                       step="0.1"
                       value={formData.expectedInterest}
@@ -321,10 +334,11 @@ export default function NewInquiry() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="new-inq-investor-tenure" className="block text-sm font-medium text-gray-700 mb-2">
                       Tenure (months)
                     </label>
                     <input
+                      id="new-inq-investor-tenure"
                       type="number"
                       value={formData.investorTenure}
                       onChange={(e) => setFormData({ ...formData, investorTenure: e.target.value })}
@@ -334,10 +348,11 @@ export default function NewInquiry() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="new-inq-investor-freq" className="block text-sm font-medium text-gray-700 mb-2">
                       Frequency
                     </label>
                     <select
+                      id="new-inq-investor-freq"
                       value={formData.investorFrequency}
                       onChange={(e) => setFormData({ ...formData, investorFrequency: e.target.value as 'Monthly' | 'Quarterly' | 'Half-Yearly' | 'Yearly' })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -356,8 +371,9 @@ export default function NewInquiry() {
           {/* Notes */}
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="border-t pt-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+            <label htmlFor="new-inq-notes" className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
             <textarea
+              id="new-inq-notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               rows={4}

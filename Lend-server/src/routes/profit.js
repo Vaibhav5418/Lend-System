@@ -3,6 +3,7 @@ import InvestorInvestment from '../models/InvestorInvestment.js';
 import InvestorPayment from '../models/InvestorPayment.js';
 import BorrowerLoan from '../models/BorrowerLoan.js';
 import BorrowerCollection from '../models/BorrowerCollection.js';
+import { sanitizeLog } from '../utils/security.js';
 
 const router = Router();
 
@@ -125,7 +126,8 @@ router.get('/dashboard', async (_req, res) => {
       monthlyProfit,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Profit dashboard calculation error:', sanitizeLog(err));
+    res.status(500).json({ error: 'Unable to calculate profit metrics' });
   }
 });
 

@@ -10,7 +10,20 @@ export default function Agents() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getAgents().then(setAgents).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    let isMounted = true;
+    api.getAgents()
+      .then((data) => {
+        if (isMounted) setAgents(data);
+      })
+      .catch((e) => {
+        if (isMounted) setError(e.message);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   if (loading) return <div className="p-6 text-gray-500">Loading agents...</div>;

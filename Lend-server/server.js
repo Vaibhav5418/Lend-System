@@ -15,7 +15,10 @@ import proposalRoutes from './src/routes/proposals.js';
 import profitRoutes from './src/routes/profit.js';
 import { authMiddleware } from './src/middleware/auth.js';
 
+import { sanitizeLog } from './src/utils/security.js';
+
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 3001;
 
 app.use(compression());
@@ -47,8 +50,8 @@ app.use('/api/profit', profitRoutes);
 
 // Global error handler for unhandled route errors
 app.use((err, _req, res, _next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  console.error('Unhandled error:', sanitizeLog(err));
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 async function run() {
@@ -65,7 +68,7 @@ async function run() {
       });
       console.log('Connected to MongoDB Atlas');
     } catch (err) {
-      console.error('MongoDB connection error:', err.message);
+      console.error('MongoDB connection error:', sanitizeLog(err?.message || err));
       process.exit(1);
     }
   }

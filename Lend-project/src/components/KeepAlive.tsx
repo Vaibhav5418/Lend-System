@@ -9,20 +9,44 @@ export default function KeepAlive() {
   const [isWakingUp, setIsWakingUp] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+    let timeoutToken: ReturnType<typeof setTimeout> | null = null;
+
     const checkHealth = async () => {
       // If health check takes > 2s, it's likely a cold start
-      const timeoutToken = setTimeout(() => setIsWakingUp(true), 2000);
+      timeoutToken = setTimeout(() => {
+        if (isMounted) {
+          setIsWakingUp(true);
+        }
+      }, 2000);
+
       try {
         await pingHealth();
+      } catch {
+        // Ping health error (e.g. offline/sleeping) - suppress silently
       } finally {
-        clearTimeout(timeoutToken);
-        setIsWakingUp(false);
+        if (timeoutToken) {
+          clearTimeout(timeoutToken);
+          timeoutToken = null;
+        }
+        if (isMounted) {
+          setIsWakingUp(false);
+        }
       }
     };
 
-    checkHealth();
-    const interval = setInterval(checkHealth, KEEP_ALIVE_INTERVAL_MS);
-    return () => clearInterval(interval);
+    void checkHealth();
+    const interval = setInterval(() => {
+      void checkHealth();
+    }, KEEP_ALIVE_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      if (timeoutToken) {
+        clearTimeout(timeoutToken);
+      }
+      clearInterval(interval);
+    };
   }, []);
 
   if (!isWakingUp) return null;

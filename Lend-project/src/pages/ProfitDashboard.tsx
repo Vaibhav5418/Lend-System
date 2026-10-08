@@ -36,10 +36,20 @@ export default function ProfitDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
     api.getProfitDashboard()
-      .then(setData)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        if (isMounted) setData(res);
+      })
+      .catch((err) => {
+        if (isMounted) setError(err instanceof Error ? err.message : 'Failed to load');
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   if (loading) return <div className="p-6 text-slate-500">Loading profit analytics...</div>;
