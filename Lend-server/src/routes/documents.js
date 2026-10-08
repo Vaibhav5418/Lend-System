@@ -49,16 +49,25 @@ const ALLOWED_EXTENSIONS = new Set([
 // 15 MB in-memory buffer limit to mitigate memory exhaustion DoS while supporting standard loan documents
 export const MAX_DOCUMENT_SIZE_MB = 15;
 export const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024;
+// The endpoint accepts one file and no large metadata fields. Allow bounded
+// multipart framing overhead without permitting an unbounded request body.
+export const MAX_UPLOAD_REQUEST_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES + 1024 * 1024;
+const MAX_UPLOAD_FIELD_SIZE_BYTES = 64 * 1024;
+const MAX_UPLOAD_FIELDS = 2;
+const MAX_UPLOAD_PARTS = 3;
+const MAX_UPLOAD_HEADER_PAIRS = 50;
+
+const UPLOAD_TOO_LARGE_MESSAGE = 'File size exceeds the maximum allowed limit.';
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: MAX_DOCUMENT_SIZE_BYTES,
     files: 1,
-    fields: 10,
-    parts: 20,
-    fieldSize: 1024 * 1024,
-    headerPairs: 50,
+    fields: MAX_UPLOAD_FIELDS,
+    parts: MAX_UPLOAD_PARTS,
+    fieldSize: MAX_UPLOAD_FIELD_SIZE_BYTES,
+    headerPairs: MAX_UPLOAD_HEADER_PAIRS,
   },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
@@ -152,19 +161,32 @@ router.get('/', async (req, res) => {
 router.post(
   '/',
   (req, res, next) => {
-    // Fast-fail if Content-Length header is present and already exceeds maximum allowed document size + overhead
+    // Fast-fail before memoryStorage starts buffering an obviously oversized request.
     const contentLength = req.headers['content-length'];
     if (contentLength) {
-      const parsedLength = Number.parseInt(contentLength, 10);
-      if (!Number.isNaN(parsedLength) && parsedLength > MAX_DOCUMENT_SIZE_BYTES + 1024 * 1024) {
-        return res.status(413).json({ error: `File size exceeds maximum allowed limit of ${MAX_DOCUMENT_SIZE_MB}MB` });
+      if (typeof contentLength !== 'string' || !/^\d+$/.test(contentLength)) {
+        return res.status(400).json({ error: 'Invalid Content-Length header' });
+      }
+      const parsedLength = Number(contentLength);
+      if (!Number.isSafeInteger(parsedLength)) {
+        return res.status(400).json({ error: 'Invalid Content-Length header' });
+      }
+      if (parsedLength > MAX_UPLOAD_REQUEST_SIZE_BYTES) {
+        return res.status(413).json({ error: UPLOAD_TOO_LARGE_MESSAGE });
       }
     }
 
     upload.single('file')(req, res, (err) => {
       if (err) {
-        if (err instanceof multer.MulterError && (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_PART_COUNT')) {
-          return res.status(400).json({ error: `File size exceeds maximum allowed limit of ${MAX_DOCUMENT_SIZE_MB}MB` });
+        if ((err instanceof multer.MulterError || typeof err?.code === 'string') && [
+          'LIMIT_FILE_SIZE',
+          'LIMIT_FIELD_COUNT',
+          'LIMIT_FIELD_SIZE',
+          'LIMIT_FIELD_VALUE',
+          'LIMIT_PART_COUNT',
+          'LIMIT_HEADER_COUNT',
+        ].includes(err.code)) {
+          return res.status(413).json({ error: UPLOAD_TOO_LARGE_MESSAGE });
         }
         return res.status(400).json({ error: err.message || 'File upload rejected' });
       }

@@ -8,6 +8,7 @@ import proposalRoutes from '../src/routes/proposals.js';
 import inquiryRoutes from '../src/routes/inquiries.js';
 import documentRoutes from '../src/routes/documents.js';
 import authRoutes from '../src/routes/auth.js';
+import { MAX_DOCUMENT_SIZE_BYTES, MAX_UPLOAD_REQUEST_SIZE_BYTES } from '../src/routes/documents.js';
 
 describe('Express Route Security Integration Tests', () => {
   let server;
@@ -223,7 +224,22 @@ describe('Express Route Security Integration Tests', () => {
         req.end();
       });
       assert.equal(res.status, 413);
-      assert.match(res.body.error, /File size exceeds maximum allowed limit/);
+      assert.equal(res.body.error, 'File size exceeds the maximum allowed limit.');
+    });
+
+    it('should reject multipart fields above the bounded field size with 413', async () => {
+      const form = new FormData();
+      form.append('metadata', 'x'.repeat(64 * 1024 + 1));
+      const res = await fetch(`${baseUrl}/api/inquiries/INQ-001/documents`, {
+        method: 'POST',
+        body: form,
+      });
+      assert.equal(res.status, 413);
+      assert.deepEqual(await res.json(), { error: 'File size exceeds the maximum allowed limit.' });
+    });
+
+    it('should keep the request envelope bounded above the document limit', () => {
+      assert.equal(MAX_UPLOAD_REQUEST_SIZE_BYTES, MAX_DOCUMENT_SIZE_BYTES + 1024 * 1024);
     });
   });
 
