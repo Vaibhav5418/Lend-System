@@ -8,7 +8,11 @@ import proposalRoutes from '../src/routes/proposals.js';
 import inquiryRoutes from '../src/routes/inquiries.js';
 import documentRoutes from '../src/routes/documents.js';
 import authRoutes from '../src/routes/auth.js';
-import { MAX_DOCUMENT_SIZE_BYTES, MAX_UPLOAD_REQUEST_SIZE_BYTES } from '../src/routes/documents.js';
+import {
+  MAX_DOCUMENT_SIZE_BYTES,
+  MAX_UPLOAD_OVERHEAD_BYTES,
+  MAX_UPLOAD_REQUEST_SIZE_BYTES,
+} from '../src/routes/documents.js';
 
 describe('Express Route Security Integration Tests', () => {
   let server;
@@ -239,7 +243,7 @@ describe('Express Route Security Integration Tests', () => {
     });
 
     it('should keep the request envelope bounded above the document limit', () => {
-      assert.equal(MAX_UPLOAD_REQUEST_SIZE_BYTES, MAX_DOCUMENT_SIZE_BYTES + 1024 * 1024);
+      assert.equal(MAX_UPLOAD_REQUEST_SIZE_BYTES, MAX_DOCUMENT_SIZE_BYTES + MAX_UPLOAD_OVERHEAD_BYTES);
     });
   });
 

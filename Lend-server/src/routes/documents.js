@@ -51,11 +51,12 @@ export const MAX_DOCUMENT_SIZE_MB = 15;
 export const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024;
 // The endpoint accepts one file and no large metadata fields. Allow bounded
 // multipart framing overhead without permitting an unbounded request body.
-export const MAX_UPLOAD_REQUEST_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES + 1024 * 1024;
-const MAX_UPLOAD_FIELD_SIZE_BYTES = 64 * 1024;
-const MAX_UPLOAD_FIELDS = 2;
-const MAX_UPLOAD_PARTS = 3;
-const MAX_UPLOAD_HEADER_PAIRS = 50;
+export const MAX_UPLOAD_OVERHEAD_BYTES = 1 * 1024 * 1024;
+export const MAX_UPLOAD_REQUEST_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES + MAX_UPLOAD_OVERHEAD_BYTES;
+export const MAX_UPLOAD_FIELD_SIZE_BYTES = 64 * 1024;
+export const MAX_UPLOAD_FIELDS = 2;
+export const MAX_UPLOAD_PARTS = 3;
+export const MAX_UPLOAD_HEADER_PAIRS = 50;
 
 const UPLOAD_TOO_LARGE_MESSAGE = 'File size exceeds the maximum allowed limit.';
 
