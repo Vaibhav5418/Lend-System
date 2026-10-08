@@ -47,13 +47,18 @@ const ALLOWED_EXTENSIONS = new Set([
 ]);
 
 // 15 MB in-memory buffer limit to mitigate memory exhaustion DoS while supporting standard loan documents
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
+export const MAX_DOCUMENT_SIZE_MB = 15;
+export const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024;
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: MAX_FILE_SIZE,
+    fileSize: MAX_DOCUMENT_SIZE_BYTES,
     files: 1,
+    fields: 10,
+    parts: 20,
+    fieldSize: 1024 * 1024,
+    headerPairs: 50,
   },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
@@ -147,10 +152,19 @@ router.get('/', async (req, res) => {
 router.post(
   '/',
   (req, res, next) => {
+    // Fast-fail if Content-Length header is present and already exceeds maximum allowed document size + overhead
+    const contentLength = req.headers['content-length'];
+    if (contentLength) {
+      const parsedLength = Number.parseInt(contentLength, 10);
+      if (!Number.isNaN(parsedLength) && parsedLength > MAX_DOCUMENT_SIZE_BYTES + 1024 * 1024) {
+        return res.status(413).json({ error: `File size exceeds maximum allowed limit of ${MAX_DOCUMENT_SIZE_MB}MB` });
+      }
+    }
+
     upload.single('file')(req, res, (err) => {
       if (err) {
-        if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({ error: 'File size exceeds maximum allowed limit of 15MB' });
+        if (err instanceof multer.MulterError && (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_PART_COUNT')) {
+          return res.status(400).json({ error: `File size exceeds maximum allowed limit of ${MAX_DOCUMENT_SIZE_MB}MB` });
         }
         return res.status(400).json({ error: err.message || 'File upload rejected' });
       }

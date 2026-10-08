@@ -121,7 +121,7 @@ export default function InquiryDetail() {
     };
   }, [id, viewingPdf?.docId]);
 
-  const MAX_FILE_SIZE_MB = 100; // Files ≤10 MB → Cloudinary; >10 MB → Supabase
+  const MAX_FILE_SIZE_MB = 15; // Files ≤10 MB → Cloudinary; >10 MB → Supabase
   const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

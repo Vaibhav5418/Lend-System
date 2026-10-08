@@ -22,7 +22,8 @@ app.disable('x-powered-by');
 const PORT = process.env.PORT || 3001;
 
 app.use(compression());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 const allowedOrigins = [
   process.env.FRONTEND_ORIGIN,
   'https://lend-project-zeta.vercel.app',

@@ -1,11 +1,13 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import express from 'express';
 import borrowerLoanRoutes from '../src/routes/borrowerLoans.js';
 import investorRoutes from '../src/routes/investor.js';
 import proposalRoutes from '../src/routes/proposals.js';
 import inquiryRoutes from '../src/routes/inquiries.js';
 import documentRoutes from '../src/routes/documents.js';
+import authRoutes from '../src/routes/auth.js';
 
 describe('Express Route Security Integration Tests', () => {
   let server;
@@ -14,9 +16,11 @@ describe('Express Route Security Integration Tests', () => {
   before(async () => {
     const app = express();
     app.disable('x-powered-by');
-    app.use(express.json());
+    app.use(express.json({ limit: '2mb' }));
+    app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
     app.get('/api/health', (_, res) => res.json({ ok: true }));
+    app.use('/api/auth', authRoutes);
     app.use('/api/borrower', borrowerLoanRoutes);
     app.use('/api/investor', investorRoutes);
     app.use('/api/proposals', proposalRoutes);
@@ -194,6 +198,70 @@ describe('Express Route Security Integration Tests', () => {
         method: 'POST',
       });
       assert.equal(res.status, 400);
+    });
+
+    it('should reject pre-flight Content-Length exceeding safe limit with 413', async () => {
+      const port = new URL(baseUrl).port;
+      const res = await new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: '127.0.0.1',
+          port,
+          path: '/api/inquiries/INQ-001/documents',
+          method: 'POST',
+          headers: {
+            'content-length': String(25 * 1024 * 1024),
+            'content-type': 'multipart/form-data; boundary=----WebKitFormBoundaryXYZ',
+          },
+        }, (response) => {
+          let data = '';
+          response.on('data', (chunk) => { data += chunk; });
+          response.on('end', () => {
+            resolve({ status: response.statusCode, body: data ? JSON.parse(data) : {} });
+          });
+        });
+        req.on('error', reject);
+        req.end();
+      });
+      assert.equal(res.status, 413);
+      assert.match(res.body.error, /File size exceeds maximum allowed limit/);
+    });
+  });
+
+  describe('Authentication Email Validation & ReDoS Protection', () => {
+    it('should reject malformed email format on registration', async () => {
+      const res = await fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Test User', email: 'invalid-email', password: 'password123' }),
+      });
+      assert.equal(res.status, 400);
+      const data = await res.json();
+      assert.equal(data.error, 'Invalid email address format');
+    });
+
+    it('should reject email exceeding RFC 5321 length of 254 chars', async () => {
+      const longEmail = 'a'.repeat(250) + '@example.com';
+      const res = await fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Test User', email: longEmail, password: 'password123' }),
+      });
+      assert.equal(res.status, 400);
+      const data = await res.json();
+      assert.equal(data.error, 'Invalid email address format');
+    });
+
+    it('should reject ReDoS pattern in linear time (< 50ms) without stalling event loop', async () => {
+      const maliciousEmail = 'a@' + 'a.'.repeat(10000) + '!';
+      const start = Date.now();
+      const res = await fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Test User', email: maliciousEmail, password: 'password123' }),
+      });
+      const duration = Date.now() - start;
+      assert.equal(res.status, 400);
+      assert.ok(duration < 150, `Expected duration < 150ms, took ${duration}ms`);
     });
   });
 

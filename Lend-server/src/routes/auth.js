@@ -5,7 +5,7 @@ import { sanitizeLog, sanitizeString } from '../utils/security.js';
 
 const router = Router();
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 router.post('/register', async (req, res) => {
   try {
@@ -20,7 +20,7 @@ router.post('/register', async (req, res) => {
     if (!cleanName || !cleanEmail || !password) {
       return res.status(400).json({ error: 'Name, email and password are required' });
     }
-    if (!EMAIL_REGEX.test(cleanEmail)) {
+    if (cleanEmail.length > 254 || !EMAIL_REGEX.test(cleanEmail)) {
       return res.status(400).json({ error: 'Invalid email address format' });
     }
     if (password.length < 6) {

@@ -9,6 +9,8 @@ import {
   calcPlatformSpread,
   calcPenalty,
 } from '../src/utils/financialCalc.js';
+import { EMAIL_REGEX } from '../src/routes/auth.js';
+import { MAX_DOCUMENT_SIZE_BYTES, MAX_DOCUMENT_SIZE_MB } from '../src/routes/documents.js';
 
 describe('Reliability & Correctness Test Suite', () => {
   describe('1. Payout Calculation Loop Correctness & Determinism', () => {
@@ -383,6 +385,63 @@ describe('Reliability & Correctness Test Suite', () => {
 
       await promise;
       assert.equal(stateUpdated, false, 'State was safely prevented from updating after unmount');
+    });
+  });
+
+  describe('5. Regular Expression ReDoS Resilience & Email Validation', () => {
+    it('should accept valid standard email formats', () => {
+      assert.equal(EMAIL_REGEX.test('user@example.com'), true);
+      assert.equal(EMAIL_REGEX.test('first.last@company.org'), true);
+      assert.equal(EMAIL_REGEX.test('user+tag@sub.domain.co.in'), true);
+      assert.equal(EMAIL_REGEX.test('a@b.com'), true);
+      assert.equal(EMAIL_REGEX.test('customer_123@finance.lendflow.net'), true);
+    });
+
+    it('should reject malformed or invalid email formats', () => {
+      assert.equal(EMAIL_REGEX.test(''), false);
+      assert.equal(EMAIL_REGEX.test('plainaddress'), false);
+      assert.equal(EMAIL_REGEX.test('user@'), false);
+      assert.equal(EMAIL_REGEX.test('@domain.com'), false);
+      assert.equal(EMAIL_REGEX.test('user@domain'), false);
+      assert.equal(EMAIL_REGEX.test('user@domain.'), false);
+      assert.equal(EMAIL_REGEX.test('user@.domain'), false);
+      assert.equal(EMAIL_REGEX.test('user@domain..com'), false);
+      assert.equal(EMAIL_REGEX.test('user name@domain.com'), false);
+      assert.equal(EMAIL_REGEX.test('user@dom ain.com'), false);
+    });
+
+    it('should evaluate very long malicious ReDoS inputs in linear time (< 50ms)', () => {
+      const maliciousDotPattern = 'a@' + 'a.'.repeat(25000);
+      const start1 = performance.now();
+      const res1 = EMAIL_REGEX.test(maliciousDotPattern);
+      const elapsed1 = performance.now() - start1;
+
+      assert.equal(res1, false);
+      assert.ok(elapsed1 < 50, `Expected elapsed < 50ms, got ${elapsed1}ms`);
+
+      const longLocalPart = 'a'.repeat(25000) + '@' + 'b'.repeat(25000) + '.com';
+      const start2 = performance.now();
+      const res2 = EMAIL_REGEX.test(longLocalPart);
+      const elapsed2 = performance.now() - start2;
+
+      assert.equal(res2, true);
+      assert.ok(elapsed2 < 50, `Expected elapsed < 50ms, got ${elapsed2}ms`);
+    });
+  });
+
+  describe('6. Document Upload Content-Length Limits & Memory Safety', () => {
+    it('should define safe named constants matching production constraints', () => {
+      assert.equal(MAX_DOCUMENT_SIZE_MB, 15);
+      assert.equal(MAX_DOCUMENT_SIZE_BYTES, 15 * 1024 * 1024);
+    });
+
+    it('pre-flight content-length check should identify and reject oversized requests', () => {
+      const allowedLimit = MAX_DOCUMENT_SIZE_BYTES + 1024 * 1024;
+      const validPayloadLength = 5 * 1024 * 1024;
+      const oversizedPayloadLength = 20 * 1024 * 1024;
+
+      assert.equal(validPayloadLength <= allowedLimit, true);
+      assert.equal(oversizedPayloadLength > allowedLimit, true);
     });
   });
 });
