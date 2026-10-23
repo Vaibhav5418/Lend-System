@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import mongoose from 'mongoose';
+import { isDbConnected } from '../db/index.js';
 import multer from 'multer';
 import path from 'path';
 import {
@@ -142,8 +142,8 @@ router.get('/', async (req, res) => {
     if (!isValidId(inquiryId, ID_PATTERNS.inquiry)) {
       return res.status(400).json({ error: 'Invalid inquiry ID format' });
     }
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({ error: 'Database not connected. Check MONGODB_URI and server logs.' });
+    if (!isDbConnected()) {
+      return res.status(503).json({ error: 'Database not connected. Check DATABASE_URL and server logs.' });
     }
     const inquiry = await Inquiry.findOne({ id: inquiryId }).lean();
     if (!inquiry) return res.status(404).json({ error: 'Inquiry not found' });

@@ -2,7 +2,6 @@ import './loadEnv.js';
 
 import express from 'express';
 import cors from 'cors';
-import mongoose from 'mongoose';
 import compression from 'compression';
 import authRoutes from './src/routes/auth.js';
 import inquiryRoutes from './src/routes/inquiries.js';
@@ -14,7 +13,10 @@ import borrowerLoanRoutes from './src/routes/borrowerLoans.js';
 import proposalRoutes from './src/routes/proposals.js';
 import profitRoutes from './src/routes/profit.js';
 import { authMiddleware } from './src/middleware/auth.js';
+import { requestLogger } from './src/middleware/logger.js';
 
+import { checkConnection, closePool } from './src/db/index.js';
+import { initializeDatabase } from './src/db/migrate.js';
 import { sanitizeLog } from './src/utils/security.js';
 
 const app = express();
@@ -33,6 +35,7 @@ const allowedOrigins = [
   'https://loanlybyvaibhav.vercel.app',
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true, credentials: true }));
+app.use(requestLogger);
 
 app.use('/api/auth', authRoutes);
 app.get('/api/health', (_, res) => res.json({ ok: true }));
@@ -56,20 +59,19 @@ app.use((err, _req, res, _next) => {
 });
 
 async function run() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    console.warn('MONGODB_URI not set. Set it in server/.env to connect to MongoDB Atlas.');
+  const dbUrl = process.env.DATABASE_URL || process.env.DB_URI;
+  if (!dbUrl) {
+    console.warn('DATABASE_URL or DB_URI not set. Set it in server/.env to connect to Neon PostgreSQL.');
   } else {
     try {
-      // Optimized connection options
-      await mongoose.connect(uri, {
-        maxPoolSize: 10,
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-      });
-      console.log('Connected to MongoDB Atlas');
+      const connected = await checkConnection();
+      if (!connected) {
+        throw new Error('Unable to establish initial PostgreSQL connection');
+      }
+      console.log('Connected to Neon PostgreSQL');
+      await initializeDatabase();
     } catch (err) {
-      console.error('MongoDB connection error:', sanitizeLog(err?.message || err));
+      console.error('PostgreSQL connection error:', sanitizeLog(err?.message || err));
       process.exit(1);
     }
   }
@@ -81,6 +83,18 @@ async function run() {
   server.timeout = 8 * 60 * 1000; // 8 minutes
   server.keepAliveTimeout = 9 * 60 * 1000;
   server.headersTimeout = 9 * 60 * 1000;
+
+  const handleShutdown = async (signal) => {
+    console.log(`Received ${signal}. Shutting down gracefully...`);
+    server.close(async () => {
+      await closePool();
+      console.log('HTTP server and database connections closed.');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
 run().catch(console.error);

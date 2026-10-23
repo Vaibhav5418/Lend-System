@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import mongoose from 'mongoose';
+import { isDbConnected } from '../db/index.js';
 import Inquiry from '../models/Inquiry.js';
 import { updateInquiryStage } from '../services/stageService.js';
 import { BORROWER_STAGES, INVESTOR_STAGES, DEFAULT_STAGE, isStageAllowed } from '../constants/stages.js';
@@ -42,8 +42,8 @@ router.get('/:id', async (req, res) => {
     if (!isValidId(id, ID_PATTERNS.inquiry)) {
       return res.status(400).json({ error: 'Invalid inquiry ID format' });
     }
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({ error: 'Database not connected. Check MONGODB_URI and server logs.' });
+    if (!isDbConnected()) {
+      return res.status(503).json({ error: 'Database not connected. Check DATABASE_URL and server logs.' });
     }
     const inquiry = await Inquiry.findOne({ id }).lean();
     if (!inquiry) return res.status(404).json({ error: 'Inquiry not found' });
