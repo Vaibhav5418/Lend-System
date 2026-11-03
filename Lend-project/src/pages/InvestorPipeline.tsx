@@ -1,25 +1,74 @@
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Phone, Mail, Calendar, DollarSign } from 'lucide-react';
-import { useInquiryCache } from '../context/InquiryCacheContext';
-import { INVESTOR_STAGES, STAGE_LABELS, type InvestorStage } from '../types';
+import { api } from '../api/client';
+import { INVESTOR_STAGES, STAGE_LABELS, type InvestorStage, type Inquiry, type StageSummaryItem } from '../types';
 
 const stages = [...INVESTOR_STAGES];
 
 export default function InvestorPipeline() {
   const navigate = useNavigate();
-  const { inquiries, loading, error } = useInquiryCache();
+  const [summary, setSummary] = useState<StageSummaryItem[]>([]);
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const investorInquiries = inquiries.filter((inq) => inq.type === 'Investor');
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [sumRes, inqRes] = await Promise.all([
+          api.getStageSummary('Investor'),
+          api.getInquiries({ type: 'Investor', limit: 100 }),
+        ]);
+        if (isMounted) {
+          setSummary(sumRes);
+          if (inqRes && 'data' in inqRes) {
+            setInquiries(inqRes.data);
+          } else if (Array.isArray(inqRes)) {
+            setInquiries(inqRes);
+          }
+        }
+      } catch (err) {
+        if (isMounted) setError(err instanceof Error ? err.message : 'Failed to load pipeline');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const summaryMap = useMemo(() => {
+    const map = new Map<string, StageSummaryItem>();
+    for (const item of summary) {
+      map.set(item.stage, item);
+    }
+    return map;
+  }, [summary]);
+
+  const totalInvestors = useMemo(() => summary.reduce((s, item) => s + item.count, 0), [summary]);
+  const activeCount = useMemo(
+    () => summary.filter((i) => i.stage !== 'AGREEMENT_DONE' && i.stage !== 'FUND_RECEIVED').reduce((s, item) => s + item.count, 0),
+    [summary]
+  );
+  const agreementsDoneCount = useMemo(() => summaryMap.get('AGREEMENT_DONE')?.count ?? 0, [summaryMap]);
+  const fundsReceivedCount = useMemo(() => summaryMap.get('FUND_RECEIVED')?.count ?? 0, [summaryMap]);
 
   const getInquiriesByStage = (stage: InvestorStage) => {
-    return investorInquiries.filter((inq) => inq.stage === stage);
+    return inquiries.filter((inq) => inq.stage === stage);
+  };
+
+  const getStageCount = (stage: InvestorStage) => {
+    return summaryMap.get(stage)?.count ?? 0;
   };
 
   const getTotalAmount = (stage: InvestorStage) => {
-    return getInquiriesByStage(stage).reduce(
-      (sum, inq) => sum + (inq.investorDetails?.investmentAmount || 0),
-      0
-    );
+    return summaryMap.get(stage)?.totalAmount ?? 0;
   };
 
   if (loading) return <div className="p-6 text-gray-500">Loading pipeline...</div>;
@@ -36,25 +85,19 @@ export default function InvestorPipeline() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Total Investors</p>
-          <p className="text-2xl font-bold text-gray-900">{investorInquiries.length}</p>
+          <p className="text-2xl font-bold text-gray-900">{totalInvestors.toLocaleString('en-IN')}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Active</p>
-          <p className="text-2xl font-bold text-purple-600">
-            {investorInquiries.filter((inq) => inq.stage !== 'AGREEMENT_DONE' && inq.stage !== 'FUND_RECEIVED').length}
-          </p>
+          <p className="text-2xl font-bold text-purple-600">{activeCount.toLocaleString('en-IN')}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Agreements Done</p>
-          <p className="text-2xl font-bold text-green-600">
-            {investorInquiries.filter((inq) => inq.stage === 'AGREEMENT_DONE').length}
-          </p>
+          <p className="text-2xl font-bold text-green-600">{agreementsDoneCount.toLocaleString('en-IN')}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Funds Received</p>
-          <p className="text-2xl font-bold text-blue-600">
-            {investorInquiries.filter((inq) => inq.stage === 'FUND_RECEIVED').length}
-          </p>
+          <p className="text-2xl font-bold text-blue-600">{fundsReceivedCount.toLocaleString('en-IN')}</p>
         </div>
       </div>
 
@@ -63,6 +106,7 @@ export default function InvestorPipeline() {
         <div className="flex gap-4 min-w-max">
           {stages.map((stage) => {
             const stageInquiries = getInquiriesByStage(stage);
+            const stageCount = getStageCount(stage);
             const totalAmount = getTotalAmount(stage);
 
             return (
@@ -75,7 +119,7 @@ export default function InvestorPipeline() {
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-gray-900">{STAGE_LABELS[stage] ?? stage}</h3>
                     <span className="bg-purple-100 text-purple-700 text-xs font-medium px-2 py-1 rounded-full">
-                      {stageInquiries.length}
+                      {stageCount.toLocaleString('en-IN')}
                     </span>
                   </div>
                   {totalAmount > 0 && (

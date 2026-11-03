@@ -38,8 +38,12 @@ export function InquiryCacheProvider({ children }: { children: ReactNode }) {
     try {
       const data = await api.getInquiries();
       setInquiries(data);
-      // Save to localStorage for next time
-      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      // Save to localStorage for next time (ignore quota exceeded errors gracefully)
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      } catch {
+        // LocalStorage quota (5MB) exceeded; keep data in React state without throwing
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load inquiries');
     } finally {

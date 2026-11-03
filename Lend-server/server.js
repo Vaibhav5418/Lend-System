@@ -14,6 +14,7 @@ import proposalRoutes from './src/routes/proposals.js';
 import profitRoutes from './src/routes/profit.js';
 import { authMiddleware } from './src/middleware/auth.js';
 import { requestLogger } from './src/middleware/logger.js';
+import { cacheService } from './src/services/cacheService.js';
 
 import { checkConnection, closePool } from './src/db/index.js';
 import { initializeDatabase } from './src/db/migrate.js';
@@ -39,6 +40,24 @@ app.use(requestLogger);
 
 app.use('/api/auth', authRoutes);
 app.get('/api/health', (_, res) => res.json({ ok: true }));
+
+app.get('/api/cache/stats', async (_, res) => {
+  try {
+    const stats = await cacheService.getStats();
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: 'Unable to retrieve cache stats' });
+  }
+});
+
+app.post('/api/cache/flush', async (_, res) => {
+  try {
+    await cacheService.flush();
+    res.json({ ok: true, message: 'Cache flushed successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Unable to flush cache' });
+  }
+});
 
 app.use(authMiddleware);
 app.use('/api/inquiries/:inquiryId/documents', documentRoutes);

@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, Phone, Mail, Pencil, GripVertical } from 'lucide-react';
-import { useInquiryCache } from '../context/InquiryCacheContext';
+
 import { api } from '../api/client';
-import type { Inquiry } from '../types';
+import type { Inquiry, StageSummaryItem } from '../types';
 
 function formatAmount(amount: number): string {
   if (amount >= 1_00_00_000) return `₹ ${(amount / 1_00_00_000).toFixed(1)} Cr`;
@@ -23,14 +23,63 @@ const STAGE_COLUMNS: { key: string; label: string; color: string; dot: string; c
 
 export default function InvestorInquiries() {
   const navigate = useNavigate();
-  const { inquiries, loading, error, refetch } = useInquiryCache();
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [summary, setSummary] = useState<StageSummaryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [accepting, setAccepting] = useState<string | null>(null);
   const [showAcceptModal, setShowAcceptModal] = useState<Inquiry | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [stageUpdating, setStageUpdating] = useState<string | null>(null);
   const dragCounter = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [sumRes, inqRes] = await Promise.all([
+        api.getStageSummary('Investor'),
+        api.getInquiries({
+          type: 'Investor',
+          limit: 100,
+          search: debouncedSearch.trim() || undefined,
+        }),
+      ]);
+      setSummary(sumRes);
+      if (inqRes && 'data' in inqRes) {
+        setInquiries(inqRes.data);
+      } else if (Array.isArray(inqRes)) {
+        setInquiries(inqRes);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load inquiries');
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const summaryMap = useMemo(() => {
+    const map = new Map<string, StageSummaryItem>();
+    for (const item of summary) {
+      map.set(item.stage, item);
+    }
+    return map;
+  }, [summary]);
+
+  const investorInquiries = inquiries;
+
   const [acceptForm, setAcceptForm] = useState({
     interestRate: '',
     interestRateType: 'yearly' as 'monthly' | 'yearly',
@@ -40,14 +89,6 @@ export default function InvestorInquiries() {
     startDate: new Date().toISOString().slice(0, 10),
     notes: '',
   });
-
-  const investorInquiries = inquiries
-    .filter((i) => i.type === 'Investor')
-    .filter((i) => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return i.name.toLowerCase().includes(q) || i.mobile.includes(q) || i.email.toLowerCase().includes(q);
-    });
 
   const handleAccept = async () => {
     if (!showAcceptModal) return;
@@ -67,7 +108,7 @@ export default function InvestorInquiries() {
         startDate: acceptForm.startDate,
         notes: acceptForm.notes,
       });
-      await refetch();
+      await loadData();
       setShowAcceptModal(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to accept');
@@ -140,7 +181,7 @@ export default function InvestorInquiries() {
     setStageUpdating(inqId);
     try {
       await api.updateInquiryStage(inqId, targetStage);
-      await refetch();
+      await loadData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update stage');
     } finally {
@@ -180,6 +221,9 @@ export default function InvestorInquiries() {
         {STAGE_COLUMNS.map((col) => {
           const items = investorInquiries.filter((i) => i.stage === col.key);
           const colTotal = items.reduce((s, i) => s + (i.investorDetails?.investmentAmount || 0), 0);
+          const stageSummary = summaryMap.get(col.key);
+          const displayCount = stageSummary ? stageSummary.count : items.length;
+          const displayTotal = stageSummary ? stageSummary.totalAmount : colTotal;
           return (
             <div
               key={col.key}
@@ -196,9 +240,9 @@ export default function InvestorInquiries() {
                   <div className="flex items-center gap-2">
                     <span className={`w-2.5 h-2.5 rounded-full ${col.dot}`} />
                     <span className="text-sm font-semibold text-slate-800">{col.label}</span>
-                    <span className="text-xs bg-white/80 text-slate-600 font-medium px-1.5 py-0.5 rounded-full border border-slate-200">{items.length}</span>
+                    <span className="text-xs bg-white/80 text-slate-600 font-medium px-1.5 py-0.5 rounded-full border border-slate-200">{displayCount.toLocaleString('en-IN')}</span>
                   </div>
-                  {colTotal > 0 && <span className="text-xs font-semibold text-slate-600">{formatAmount(colTotal)}</span>}
+                  {displayTotal > 0 && <span className="text-xs font-semibold text-slate-600">{formatAmount(displayTotal)}</span>}
                 </div>
               </div>
               {/* Cards */}

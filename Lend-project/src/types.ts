@@ -271,3 +271,74 @@ export interface UpcomingDue {
   principalDue: number;
   isOverdue: boolean;
 }
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  pagination: PaginationMeta;
+}
+
+export interface LoansSummary {
+  deployed: number;
+  monthlyIncome: number;
+  active: number;
+  defaulted: number;
+}
+
+export interface PaginatedLoansResult extends PaginatedResult<BorrowerLoan> {
+  summary: LoansSummary;
+}
+
+export interface CollectionsSummary {
+  totalCollected: number;
+  totalPending: number;
+  overdueCount: number;
+  totalPenalties: number;
+}
+
+export interface PaginatedCollectionsResult extends PaginatedResult<BorrowerCollection> {
+  summary: CollectionsSummary;
+}
+
+export interface InvestmentsSummary {
+  totalInvested: number;
+  monthlyPayout: number;
+  active: number;
+  matured: number;
+}
+
+export interface PaginatedInvestmentsResult extends PaginatedResult<InvestorInvestment> {
+  summary: InvestmentsSummary;
+}
+
+export interface PaymentsSummary {
+  totalPaid: number;
+  totalPending: number;
+}
+
+export interface PaginatedPaymentsResult extends PaginatedResult<InvestorPayment> {
+  summary: PaymentsSummary;
+}
+
+export interface StageSummaryItem {
+  stage: string;
+  count: number;
+  totalAmount: number;
+}
+
+export interface DashboardStatsData {
+  totalInquiries: number;
+  activeBorrowers: number;
+  activeInvestors: number;
+  totalBorrowerFunding: number;
+  totalInvestmentFunding: number;
+  trend: { date: string; label: string; inquiries: number; borrowers: number; investors: number }[];
+  pipelineData: { name: string; value: number; fill: string }[];
+  fundingBarData: { name: string; amount: number; fill: string }[];
+}

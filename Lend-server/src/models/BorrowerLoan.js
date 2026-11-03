@@ -1,6 +1,6 @@
 import { query } from '../db/index.js';
 
-function mapRowToLoan(row) {
+export function mapRowToLoan(row) {
   if (!row) return null;
   return {
     id: row.id,

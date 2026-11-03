@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { isDbConnected } from '../db/index.js';
-import Inquiry from '../models/Inquiry.js';
+import { isDbConnected, query } from '../db/index.js';
+import Inquiry, { mapRowToInquiry } from '../models/Inquiry.js';
 import { updateInquiryStage } from '../services/stageService.js';
 import { BORROWER_STAGES, INVESTOR_STAGES, DEFAULT_STAGE, isStageAllowed } from '../constants/stages.js';
 import {
@@ -11,6 +11,7 @@ import {
   parsePositiveInteger,
   sanitizeString,
 } from '../utils/security.js';
+import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const router = Router();
 
@@ -20,23 +21,243 @@ const ALLOWED_PRIORITIES = Object.freeze(['Hot', 'Warm', 'Cold']);
 const ALLOWED_FREQUENCIES = Object.freeze(['Monthly', 'Quarterly', 'Half-Yearly', 'Yearly']);
 
 async function getNextInquiryId() {
-  const last = await Inquiry.findOne().sort({ _id: -1 }).select('id').lean();
-  if (!last || typeof last.id !== 'string') return 'INQ-001';
-  const num = Number.parseInt(last.id.replace('INQ-', ''), 10) + 1;
-  return `INQ-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  try {
+    const res = await query(
+      `SELECT MAX(CAST(SUBSTRING(id FROM 5) AS INTEGER)) AS max_num FROM inquiries WHERE id ~ '^INQ-[0-9]+$'`
+    );
+    const maxNum = res.rows[0]?.max_num;
+    const nextNum = (typeof maxNum === 'number' && !Number.isNaN(maxNum)) ? maxNum + 1 : 1;
+    return `INQ-${String(nextNum).padStart(3, '0')}`;
+  } catch {
+    const last = await Inquiry.findOne().sort({ _id: -1 }).select('id').lean();
+    if (!last || typeof last.id !== 'string') return 'INQ-001';
+    const num = Number.parseInt(last.id.replace('INQ-', ''), 10) + 1;
+    return `INQ-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  }
 }
 
-router.get('/', async (_req, res) => {
+// ─── Dashboard Analytics & Aggregations (Sub-10ms SQL) ────────
+router.get('/dashboard-stats', cacheMiddleware({ ttl: 60, tags: ['dashboard', 'inquiries'] }), async (_req, res) => {
   try {
-    const inquiries = await Inquiry.find().sort({ id: 1 }).lean();
-    res.json(inquiries);
+    const kpiSql = `
+      SELECT
+        COUNT(*) AS total_inquiries,
+        COUNT(CASE WHEN type = 'Borrower' THEN 1 END) AS total_borrowers,
+        COUNT(CASE WHEN type = 'Investor' THEN 1 END) AS total_investors,
+        COALESCE(SUM(CASE WHEN type = 'Borrower' THEN COALESCE((borrower_details->>'loanAmount')::numeric, 0) ELSE 0 END), 0) AS total_borrower_funding,
+        COALESCE(SUM(CASE WHEN type = 'Investor' THEN COALESCE((investor_details->>'investmentAmount')::numeric, 0) ELSE 0 END), 0) AS total_investment_funding
+      FROM inquiries;
+    `;
+
+    const trendSql = `
+      SELECT
+        to_char(created_at, 'YYYY-MM-DD') AS date_val,
+        COUNT(*) AS count,
+        COUNT(CASE WHEN type = 'Borrower' THEN 1 END) AS borrowers,
+        COUNT(CASE WHEN type = 'Investor' THEN 1 END) AS investors
+      FROM inquiries
+      WHERE created_at >= (CURRENT_DATE - INTERVAL '13 days')
+      GROUP BY date_val
+      ORDER BY date_val ASC;
+    `;
+
+    const [kpiRes, trendRes] = await Promise.all([
+      query(kpiSql),
+      query(trendSql),
+    ]);
+
+    const kpi = kpiRes.rows[0] || {};
+    const totalInquiries = Number.parseInt(kpi.total_inquiries || 0, 10);
+    const activeBorrowers = Number.parseInt(kpi.total_borrowers || 0, 10);
+    const activeInvestors = Number.parseInt(kpi.total_investors || 0, 10);
+    const totalBorrowerFunding = Number.parseFloat(kpi.total_borrower_funding || 0);
+    const totalInvestmentFunding = Number.parseFloat(kpi.total_investment_funding || 0);
+
+    // Build contiguous 14-day sequence
+    const trendMap = new Map();
+    for (const row of trendRes.rows) {
+      trendMap.set(row.date_val, {
+        inquiries: Number.parseInt(row.count || 0, 10),
+        borrowers: Number.parseInt(row.borrowers || 0, 10),
+        investors: Number.parseInt(row.investors || 0, 10),
+      });
+    }
+
+    const trend = [];
+    const trendDays = 14;
+    for (let i = trendDays - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const day = d.getDate();
+      const mon = d.getMonth() + 1;
+      const label = `${day}/${mon}`;
+      const found = trendMap.get(dateStr) || { inquiries: 0, borrowers: 0, investors: 0 };
+      trend.push({
+        date: dateStr,
+        label,
+        inquiries: found.inquiries,
+        borrowers: found.borrowers,
+        investors: found.investors,
+      });
+    }
+
+    res.json({
+      totalInquiries,
+      activeBorrowers,
+      activeInvestors,
+      totalBorrowerFunding,
+      totalInvestmentFunding,
+      trend,
+      pipelineData: [
+        { name: 'Borrowers', value: activeBorrowers, fill: '#0ea5e9' },
+        { name: 'Investors', value: activeInvestors, fill: '#8b5cf6' },
+      ],
+      fundingBarData: [
+        { name: 'Borrower Funding', amount: totalBorrowerFunding, fill: '#0284c7' },
+        { name: 'Investment Funding', amount: totalInvestmentFunding, fill: '#7c3aed' },
+      ],
+    });
+  } catch (err) {
+    console.error('Fetch dashboard stats error:', sanitizeLog(err));
+    res.status(500).json({ error: 'Unable to fetch dashboard statistics' });
+  }
+});
+
+// ─── Stage Funnel Summary (Instant stage counts & amounts) ────
+router.get('/stage-summary', cacheMiddleware({ ttl: 120, tags: ['inquiries'] }), async (req, res) => {
+  try {
+    const { type } = req.query;
+    const filterType = ALLOWED_INQUIRY_TYPES.includes(type) ? type : 'Borrower';
+
+    const sql = `
+      SELECT
+        stage,
+        COUNT(*)::int AS count,
+        COALESCE(SUM(
+          CASE
+            WHEN type = 'Borrower' THEN COALESCE((borrower_details->>'loanAmount')::numeric, 0)
+            WHEN type = 'Investor' THEN COALESCE((investor_details->>'investmentAmount')::numeric, 0)
+            ELSE 0
+          END
+        ), 0)::numeric AS total_amount
+      FROM inquiries
+      WHERE type = $1
+      GROUP BY stage;
+    `;
+    const result = await query(sql, [filterType]);
+    const summary = result.rows.map(row => ({
+      stage: row.stage,
+      count: Number(row.count || 0),
+      totalAmount: Number(row.total_amount || 0),
+    }));
+    res.json(summary);
+  } catch (err) {
+    console.error('Fetch stage summary error:', sanitizeLog(err));
+    res.status(500).json({ error: 'Unable to fetch stage summary' });
+  }
+});
+
+// ─── Paginated & Filtered Inquiries List ─────────────────────
+router.get('/', cacheMiddleware({ ttl: 60, tags: ['inquiries'] }), async (req, res) => {
+  try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit || req.query.pageSize, 10) || (req.query.page || req.query.paginate === 'true' ? 25 : 50)));
+    const isPaginatedRequest = Boolean(req.query.page || req.query.limit || req.query.pageSize || req.query.paginate === 'true' || req.query.search);
+
+    const whereClauses = [];
+    const params = [];
+
+    if (req.query.type && ALLOWED_INQUIRY_TYPES.includes(req.query.type)) {
+      params.push(req.query.type);
+      whereClauses.push(`type = $${params.length}`);
+    }
+
+    if (req.query.stage) {
+      params.push(sanitizeString(req.query.stage, 50));
+      whereClauses.push(`stage = $${params.length}`);
+    }
+
+    if (req.query.priority && ALLOWED_PRIORITIES.includes(req.query.priority)) {
+      params.push(req.query.priority);
+      whereClauses.push(`priority = $${params.length}`);
+    }
+
+    if (req.query.search && typeof req.query.search === 'string') {
+      const s = req.query.search.trim().slice(0, 100);
+      if (s) {
+        params.push(`%${s}%`);
+        const pIdx = params.length;
+        whereClauses.push(`(
+          name ILIKE $${pIdx} OR
+          mobile ILIKE $${pIdx} OR
+          email ILIKE $${pIdx} OR
+          id ILIKE $${pIdx} OR
+          city ILIKE $${pIdx}
+        )`);
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // Sorting
+    let orderSql = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint ASC, id ASC`;
+    const sortOrder = req.query.sortOrder === 'desc' ? 'DESC' : 'ASC';
+    if (req.query.sortBy === 'createdAt') {
+      orderSql = `created_at ${sortOrder}`;
+    } else if (req.query.sortBy === 'name') {
+      orderSql = `LOWER(name) ${sortOrder}`;
+    } else if (req.query.sortBy === 'stage') {
+      orderSql = `stage ${sortOrder}`;
+    } else if (req.query.sortBy === 'priority') {
+      orderSql = `priority ${sortOrder}`;
+    } else if (req.query.sortBy === 'id' && sortOrder === 'DESC') {
+      orderSql = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint DESC, id DESC`;
+    }
+
+    if (isPaginatedRequest) {
+      const offset = (page - 1) * limit;
+      params.push(limit);
+      const limitParam = params.length;
+      params.push(offset);
+      const offsetParam = params.length;
+
+      const sql = `
+        SELECT *, COUNT(*) OVER() as _full_count
+        FROM inquiries
+        ${whereSql}
+        ORDER BY ${orderSql}
+        LIMIT $${limitParam} OFFSET $${offsetParam};
+      `;
+      const result = await query(sql, params);
+      const total = result.rows.length > 0 ? Number.parseInt(result.rows[0]._full_count, 10) : 0;
+      const data = result.rows.map(mapRowToInquiry);
+
+      return res.json({
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+      });
+    }
+
+    // Default safe fallback if unpaginated request
+    const sql = `SELECT * FROM inquiries ${whereSql} ORDER BY ${orderSql} LIMIT 100`;
+    const result = await query(sql, params);
+    res.json(result.rows.map(mapRowToInquiry));
   } catch (err) {
     console.error('Fetch inquiries error:', sanitizeLog(err));
     res.status(500).json({ error: 'Unable to fetch inquiries' });
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get(
+  '/:id',
+  cacheMiddleware({ ttl: 300, tags: ['inquiries'], keyGenerator: (req) => `api:/inquiries:${req.params.id}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidId(id, ID_PATTERNS.inquiry)) {
@@ -151,6 +372,7 @@ router.post('/', async (req, res) => {
         throw saveErr;
       }
     }
+    await invalidateCache(['inquiries', 'dashboard']);
     res.status(201).json(inquiry.toObject());
   } catch (err) {
     console.error('Create inquiry error:', sanitizeLog(err));
@@ -229,6 +451,7 @@ router.put('/:id', async (req, res) => {
       { new: true, runValidators: true }
     ).lean();
 
+    await invalidateCache(['inquiries', 'dashboard']);
     res.json(inquiry);
   } catch (err) {
     console.error('Update inquiry error:', sanitizeLog(err));
@@ -252,6 +475,7 @@ router.patch('/:id/stage', async (req, res) => {
     if (!result.success) {
       return res.status(result.status).json({ error: result.message });
     }
+    await invalidateCache(['inquiries', 'dashboard']);
     res.json(result.inquiry);
   } catch (err) {
     console.error('Update inquiry stage error:', sanitizeLog(err));
@@ -267,6 +491,7 @@ router.delete('/:id', async (req, res) => {
     }
     const result = await Inquiry.findOneAndDelete({ id });
     if (!result) return res.status(404).json({ error: 'Inquiry not found' });
+    await invalidateCache(['inquiries', 'dashboard']);
     res.status(204).send();
   } catch (err) {
     console.error('Delete inquiry error:', sanitizeLog(err));

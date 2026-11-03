@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import InvestorInvestment from '../models/InvestorInvestment.js';
-import InvestorPayment from '../models/InvestorPayment.js';
+import { query } from '../db/index.js';
+import InvestorInvestment, { mapRowToInvestment } from '../models/InvestorInvestment.js';
+import InvestorPayment, { mapRowToPayment } from '../models/InvestorPayment.js';
 import Inquiry from '../models/Inquiry.js';
 import { toAnnualRate, calcMonthlyInterest } from '../utils/financialCalc.js';
 import {
@@ -12,6 +13,7 @@ import {
   parsePositiveInteger,
   sanitizeString,
 } from '../utils/security.js';
+import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const router = Router();
 
@@ -24,26 +26,124 @@ const ALLOWED_PAYMENT_MODES = Object.freeze(['Bank Transfer', 'Cheque', 'Cash', 
 
 // ─── ID generators ───────────────────────────────────────────────
 async function nextInvestmentId() {
-  const last = await InvestorInvestment.findOne().sort({ _id: -1 }).select('id').lean();
-  if (!last || typeof last.id !== 'string') return 'INV-001';
-  const num = Number.parseInt(last.id.replace('INV-', ''), 10) + 1;
-  return `INV-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  try {
+    const res = await query(
+      `SELECT MAX(CAST(SUBSTRING(id FROM 5) AS INTEGER)) AS max_num FROM investor_investments WHERE id ~ '^INV-[0-9]+$'`
+    );
+    const maxNum = res.rows[0]?.max_num;
+    const nextNum = (typeof maxNum === 'number' && !Number.isNaN(maxNum)) ? maxNum + 1 : 1;
+    return `INV-${String(nextNum).padStart(3, '0')}`;
+  } catch {
+    const last = await InvestorInvestment.findOne().sort({ _id: -1 }).select('id').lean();
+    if (!last || typeof last.id !== 'string') return 'INV-001';
+    const num = Number.parseInt(last.id.replace('INV-', ''), 10) + 1;
+    return `INV-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  }
 }
 
 async function nextPaymentId() {
-  const last = await InvestorPayment.findOne().sort({ _id: -1 }).select('id').lean();
-  if (!last || typeof last.id !== 'string') return 'IPAY-001';
-  const num = Number.parseInt(last.id.replace('IPAY-', ''), 10) + 1;
-  return `IPAY-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  try {
+    const res = await query(
+      `SELECT MAX(CAST(SUBSTRING(id FROM 6) AS INTEGER)) AS max_num FROM investor_payments WHERE id ~ '^IPAY-[0-9]+$'`
+    );
+    const maxNum = res.rows[0]?.max_num;
+    const nextNum = (typeof maxNum === 'number' && !Number.isNaN(maxNum)) ? maxNum + 1 : 1;
+    return `IPAY-${String(nextNum).padStart(3, '0')}`;
+  } catch {
+    const last = await InvestorPayment.findOne().sort({ _id: -1 }).select('id').lean();
+    if (!last || typeof last.id !== 'string') return 'IPAY-001';
+    const num = Number.parseInt(last.id.replace('IPAY-', ''), 10) + 1;
+    return `IPAY-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // INVESTMENTS  (Borrowed / Active Investments)
 // ═══════════════════════════════════════════════════════════════════
 
-// GET all investments
-router.get('/investments', async (_req, res) => {
+// GET all investments (with server-side pagination, search, and pre-aggregated summaries)
+router.get('/investments', cacheMiddleware({ ttl: 60, tags: ['investor', 'investments'] }), async (req, res) => {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit || req.query.pageSize, 10) || (req.query.page || req.query.paginate === 'true' ? 25 : 50)));
+    const isPaginatedRequest = Boolean(req.query.page || req.query.limit || req.query.pageSize || req.query.paginate === 'true' || req.query.search || req.query.status);
+
+    const whereClauses = [];
+    const params = [];
+
+    if (req.query.status && req.query.status !== 'All' && ALLOWED_INVESTMENT_STATUSES.includes(req.query.status)) {
+      params.push(req.query.status);
+      whereClauses.push(`status = $${params.length}`);
+    }
+
+    if (req.query.search && typeof req.query.search === 'string') {
+      const s = req.query.search.trim().slice(0, 100);
+      if (s) {
+        params.push(`%${s}%`);
+        const pIdx = params.length;
+        whereClauses.push(`(
+          investor_name ILIKE $${pIdx} OR
+          id ILIKE $${pIdx} OR
+          mobile ILIKE $${pIdx} OR
+          email ILIKE $${pIdx}
+        )`);
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    if (isPaginatedRequest) {
+      const summarySql = `
+        SELECT
+          COALESCE(SUM(CASE WHEN status = 'Active' THEN invested_amount ELSE 0 END), 0) AS total_invested,
+          COALESCE(SUM(CASE WHEN status = 'Active' THEN monthly_interest ELSE 0 END), 0) AS monthly_payout,
+          COUNT(CASE WHEN status = 'Active' THEN 1 END) AS active,
+          COUNT(CASE WHEN status = 'Matured' THEN 1 END) AS matured
+        FROM investor_investments;
+      `;
+
+      const offset = (page - 1) * limit;
+      params.push(limit);
+      const limitParam = params.length;
+      params.push(offset);
+      const offsetParam = params.length;
+
+      const dataSql = `
+        SELECT *, COUNT(*) OVER() as _full_count
+        FROM investor_investments
+        ${whereSql}
+        ORDER BY created_at DESC
+        LIMIT $${limitParam} OFFSET $${offsetParam};
+      `;
+
+      const [summaryRes, dataRes] = await Promise.all([
+        query(summarySql),
+        query(dataSql, params),
+      ]);
+
+      const sRow = summaryRes.rows[0] || {};
+      const summary = {
+        totalInvested: Number(sRow.total_invested || 0),
+        monthlyPayout: Number(sRow.monthly_payout || 0),
+        active: Number(sRow.active || 0),
+        matured: Number(sRow.matured || 0),
+      };
+
+      const total = dataRes.rows.length > 0 ? Number.parseInt(dataRes.rows[0]._full_count, 10) : 0;
+      const data = dataRes.rows.map(mapRowToInvestment);
+
+      return res.json({
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+        summary,
+      });
+    }
+
     const investments = await InvestorInvestment.find().sort({ createdAt: -1 }).lean();
     res.json(investments);
   } catch (err) {
@@ -53,7 +153,10 @@ router.get('/investments', async (_req, res) => {
 });
 
 // GET single investment
-router.get('/investments/:id', async (req, res) => {
+router.get(
+  '/investments/:id',
+  cacheMiddleware({ ttl: 300, tags: ['investor'], keyGenerator: (req) => `api:/investor/investments:${req.params.id}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidId(id, ID_PATTERNS.investment)) {
@@ -175,6 +278,7 @@ router.post('/investments', async (req, res) => {
       }
     );
 
+    await invalidateCache(['investor', 'investments', 'profit', 'dashboard', 'inquiries']);
     res.status(201).json(investment.toObject());
   } catch (err) {
     console.error('Create investment error:', sanitizeLog(err));
@@ -241,6 +345,7 @@ router.put('/investments/:id', async (req, res) => {
     }
 
     await inv.save(); // re-triggers auto-calc
+    await invalidateCache(['investor', 'investments', 'profit', 'dashboard', 'inquiries']);
     res.json(inv.toObject());
   } catch (err) {
     console.error('Update investment error:', sanitizeLog(err));
@@ -257,6 +362,7 @@ router.delete('/investments/:id', async (req, res) => {
     }
     const result = await InvestorInvestment.findOneAndDelete({ id });
     if (!result) return res.status(404).json({ error: 'Investment not found' });
+    await invalidateCache(['investor', 'investments', 'profit', 'dashboard', 'inquiries']);
     res.status(204).send();
   } catch (err) {
     console.error('Delete investment error:', sanitizeLog(err));
@@ -268,19 +374,97 @@ router.delete('/investments/:id', async (req, res) => {
 // PAYMENTS  (Payouts to investors)
 // ═══════════════════════════════════════════════════════════════════
 
-// GET all payments (optionally filter by investmentId)
-router.get('/payments', async (req, res) => {
+// GET all payments (with server-side pagination, search, and pre-aggregated summaries)
+router.get('/payments', cacheMiddleware({ ttl: 60, tags: ['investor', 'payments'] }), async (req, res) => {
   try {
-    const filter = {};
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit || req.query.pageSize, 10) || (req.query.page || req.query.paginate === 'true' ? 25 : 50)));
+    const isPaginatedRequest = Boolean(req.query.page || req.query.limit || req.query.pageSize || req.query.paginate === 'true' || req.query.search || req.query.status || req.query.investmentId);
+
+    const whereClauses = [];
+    const params = [];
+
     if (req.query.investmentId !== undefined) {
       const parsedInvId = parseQueryId(req.query.investmentId, ID_PATTERNS.investment, 'investmentId');
       if (!parsedInvId.valid) {
         return res.status(400).json({ error: parsedInvId.error });
       }
       if (parsedInvId.value) {
-        filter.investmentId = parsedInvId.value;
+        params.push(parsedInvId.value);
+        whereClauses.push(`investment_id = $${params.length}`);
       }
     }
+
+    if (req.query.status && req.query.status !== 'All' && ALLOWED_PAYMENT_STATUSES.includes(req.query.status)) {
+      params.push(req.query.status);
+      whereClauses.push(`status = $${params.length}`);
+    }
+
+    if (req.query.search && typeof req.query.search === 'string') {
+      const s = req.query.search.trim().slice(0, 100);
+      if (s) {
+        params.push(`%${s}%`);
+        const pIdx = params.length;
+        whereClauses.push(`(
+          investor_name ILIKE $${pIdx} OR
+          investment_id ILIKE $${pIdx} OR
+          id ILIKE $${pIdx}
+        )`);
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    if (isPaginatedRequest) {
+      const summarySql = `
+        SELECT
+          COALESCE(SUM(CASE WHEN status = 'Paid' THEN amount_paid ELSE 0 END), 0) AS total_paid,
+          COALESCE(SUM(CASE WHEN status IN ('Pending', 'Overdue') THEN pending_interest ELSE 0 END), 0) AS total_pending
+        FROM investor_payments;
+      `;
+
+      const offset = (page - 1) * limit;
+      params.push(limit);
+      const limitParam = params.length;
+      params.push(offset);
+      const offsetParam = params.length;
+
+      const dataSql = `
+        SELECT *, COUNT(*) OVER() as _full_count
+        FROM investor_payments
+        ${whereSql}
+        ORDER BY payment_date DESC
+        LIMIT $${limitParam} OFFSET $${offsetParam};
+      `;
+
+      const [summaryRes, dataRes] = await Promise.all([
+        query(summarySql),
+        query(dataSql, params),
+      ]);
+
+      const sRow = summaryRes.rows[0] || {};
+      const summary = {
+        totalPaid: Number(sRow.total_paid || 0),
+        totalPending: Number(sRow.total_pending || 0),
+      };
+
+      const total = dataRes.rows.length > 0 ? Number.parseInt(dataRes.rows[0]._full_count, 10) : 0;
+      const data = dataRes.rows.map(mapRowToPayment);
+
+      return res.json({
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+        summary,
+      });
+    }
+
+    const filter = {};
+    if (req.query.investmentId) filter.investmentId = req.query.investmentId;
     const payments = await InvestorPayment.find(filter).sort({ paymentDate: -1 }).lean();
     res.json(payments);
   } catch (err) {
@@ -290,7 +474,10 @@ router.get('/payments', async (req, res) => {
 });
 
 // GET single payment
-router.get('/payments/:id', async (req, res) => {
+router.get(
+  '/payments/:id',
+  cacheMiddleware({ ttl: 300, tags: ['investor'], keyGenerator: (req) => `api:/investor/payments:${req.params.id}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidId(id, ID_PATTERNS.payment)) {
@@ -369,6 +556,7 @@ router.post('/payments', async (req, res) => {
         throw saveErr;
       }
     }
+    await invalidateCache(['investor', 'payments', 'profit']);
     res.status(201).json(payment.toObject());
   } catch (err) {
     console.error('Create payment error:', sanitizeLog(err));
@@ -418,6 +606,7 @@ router.put('/payments/:id', async (req, res) => {
     if (req.body.remarks !== undefined) payment.remarks = sanitizeString(req.body.remarks, 1000);
 
     await payment.save(); // triggers pre-save hook for amountPaid
+    await invalidateCache(['investor', 'payments', 'profit']);
     res.json(payment.toObject());
   } catch (err) {
     console.error('Update payment error:', sanitizeLog(err));
@@ -434,6 +623,7 @@ router.delete('/payments/:id', async (req, res) => {
     }
     const result = await InvestorPayment.findOneAndDelete({ id });
     if (!result) return res.status(404).json({ error: 'Payment not found' });
+    await invalidateCache(['investor', 'payments', 'profit']);
     res.status(204).send();
   } catch (err) {
     console.error('Delete payment error:', sanitizeLog(err));
@@ -442,13 +632,14 @@ router.delete('/payments/:id', async (req, res) => {
 });
 
 // ─── Upcoming payouts widget ────────────────────────────────────
-router.get('/upcoming-payouts', async (_req, res) => {
+router.get('/upcoming-payouts', cacheMiddleware({ ttl: 120, tags: ['investor', 'investments', 'payments'] }), async (_req, res) => {
   try {
     const now = new Date();
     const thirtyDaysLater = new Date();
     thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
 
-    const activeInvestments = await InvestorInvestment.find({ status: 'Active' }).lean();
+    const activeRes = await query(`SELECT * FROM investor_investments WHERE status = 'Active' ORDER BY created_at DESC LIMIT 250`);
+    const activeInvestments = activeRes.rows.map(mapRowToInvestment);
 
     const upcoming = [];
     for (const inv of activeInvestments) {

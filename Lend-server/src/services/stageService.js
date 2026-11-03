@@ -2,6 +2,7 @@ import Inquiry from '../models/Inquiry.js';
 import { BORROWER_STAGES, INVESTOR_STAGES, DEFAULT_STAGE } from '../constants/stages.js';
 import { validateStageUpdate } from '../validators/stageUpdate.js';
 import { isValidId, ID_PATTERNS, sanitizeLog } from '../utils/security.js';
+import { invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const STAGE_CHANGE_ACTION = 'STAGE_CHANGE';
 
@@ -56,6 +57,8 @@ export async function updateInquiryStage(inquiryId, newStage) {
     },
     { new: true, runValidators: true }
   ).lean();
+
+  await invalidateCache(['inquiries', 'dashboard']);
 
   return { success: true, inquiry: updated };
 }

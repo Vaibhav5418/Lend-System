@@ -1,6 +1,6 @@
 import { query } from '../db/index.js';
 
-function mapRowToInquiry(row) {
+export function mapRowToInquiry(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -40,16 +40,15 @@ export default class Inquiry {
   }
 
   static find(filter = {}) {
-    let orderBy = 'id ASC';
+    let orderBy = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint ASC, id ASC`;
 
     const chain = {
       sort(sortObj) {
         if (sortObj) {
-          if (sortObj.id === 1) orderBy = 'id ASC';
-          else if (sortObj.id === -1) orderBy = 'id DESC';
+          if (sortObj.id === 1 || sortObj._id === 1) orderBy = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint ASC, id ASC`;
+          else if (sortObj.id === -1 || sortObj._id === -1) orderBy = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint DESC, id DESC`;
           else if (sortObj.createdAt === -1 || sortObj.created_at === -1) orderBy = 'created_at DESC';
           else if (sortObj.createdAt === 1 || sortObj.created_at === 1) orderBy = 'created_at ASC';
-          else if (sortObj._id === -1) orderBy = 'id DESC';
         }
         return chain;
       },
@@ -81,13 +80,13 @@ export default class Inquiry {
 
   static findOne(filter = {}) {
     let selectFields = '*';
-    let orderBy = 'id DESC';
+    let orderBy = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint DESC, id DESC`;
 
     const chain = {
       sort(sortObj) {
         if (sortObj) {
-          if (sortObj._id === -1 || sortObj.id === -1) orderBy = 'id DESC';
-          else if (sortObj._id === 1 || sortObj.id === 1) orderBy = 'id ASC';
+          if (sortObj._id === -1 || sortObj.id === -1) orderBy = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint DESC, id DESC`;
+          else if (sortObj._id === 1 || sortObj.id === 1) orderBy = `NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::bigint ASC, id ASC`;
           else if (sortObj.created_at === -1 || sortObj.createdAt === -1) orderBy = 'created_at DESC';
         }
         return chain;

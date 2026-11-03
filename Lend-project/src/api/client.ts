@@ -28,7 +28,32 @@ function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+export interface RequestOptions extends RequestInit {
+  ttl?: number;
+  skipCache?: boolean;
+}
+
+interface ClientCacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+const clientCache = new Map<string, ClientCacheEntry<any>>();
+const inFlightRequests = new Map<string, Promise<any>>();
+
+export function clearClientCache(pattern?: string | RegExp): void {
+  if (!pattern) {
+    clientCache.clear();
+    return;
+  }
+  for (const key of clientCache.keys()) {
+    if (typeof pattern === 'string' ? key.includes(pattern) : pattern.test(key)) {
+      clientCache.delete(key);
+    }
+  }
+}
+
+async function doFetch<T>(path: string, options?: RequestOptions): Promise<T> {
   const isForm = options?.body instanceof FormData;
   const headers: Record<string, string> = {
     ...getAuthHeaders(),
@@ -46,8 +71,78 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function request<T>(path: string, options?: RequestOptions): Promise<T> {
+  const method = (options?.method || 'GET').toUpperCase();
+  const isGet = method === 'GET';
+
+  if (!isGet) {
+    clearClientCache();
+    return doFetch<T>(path, options);
+  }
+
+  if (options?.skipCache) {
+    return doFetch<T>(path, options);
+  }
+
+  const cacheKey = path;
+
+  const cached = clientCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.data as T;
+  }
+
+  const inFlight = inFlightRequests.get(cacheKey);
+  if (inFlight) {
+    return inFlight as Promise<T>;
+  }
+
+  const ttl = options?.ttl ?? 15_000;
+  const promise = doFetch<T>(path, options)
+    .then((data) => {
+      if (data !== undefined) {
+        clientCache.set(cacheKey, {
+          data,
+          expiresAt: Date.now() + ttl,
+        });
+      }
+      return data;
+    })
+    .finally(() => {
+      inFlightRequests.delete(cacheKey);
+    });
+
+  inFlightRequests.set(cacheKey, promise);
+  return promise;
+}
+
 export const api = {
-  getInquiries: () => request<import('../types').Inquiry[]>('/inquiries'),
+  clearCache: clearClientCache,
+  getInquiries: (params?: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    stage?: string;
+    priority?: string;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<any> => {
+    if (!params) return request<import('../types').Inquiry[]>('/inquiries');
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.set('page', String(params.page));
+    if (params.limit) searchParams.set('limit', String(params.limit));
+    if (params.type && params.type !== 'All') searchParams.set('type', params.type);
+    if (params.stage && params.stage !== 'All') searchParams.set('stage', params.stage);
+    if (params.priority && params.priority !== 'All') searchParams.set('priority', params.priority);
+    if (params.search) searchParams.set('search', params.search);
+    if (params.sortBy) searchParams.set('sortBy', params.sortBy);
+    if (params.sortOrder) searchParams.set('sortOrder', params.sortOrder);
+    return request<import('../types').PaginatedResult<import('../types').Inquiry>>(`/inquiries?${searchParams.toString()}`);
+  },
+  getDashboardStats: () =>
+    request<import('../types').DashboardStatsData>('/inquiries/dashboard-stats'),
+  getStageSummary: (type: 'Borrower' | 'Investor') =>
+    request<import('../types').StageSummaryItem[]>(`/inquiries/stage-summary?type=${type}`),
   getInquiry: (id: string) => request<import('../types').Inquiry>(`/inquiries/${id}`),
   createInquiry: (body: Omit<import('../types').Inquiry, 'id'>) =>
     request<import('../types').Inquiry>('/inquiries', { method: 'POST', body: JSON.stringify(body) }),
@@ -96,8 +191,17 @@ export const api = {
   // ═══════════════════════════════════════════════════════════════
   // INVESTOR INVESTMENTS
   // ═══════════════════════════════════════════════════════════════
-  getInvestorInvestments: () =>
-    request<import('../types').InvestorInvestment[]>('/investor/investments'),
+  getInvestorInvestments: (params?: { page?: number; limit?: number; status?: string; search?: string }): Promise<any> => {
+    if (!params) return request<import('../types').InvestorInvestment[]>('/investor/investments');
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.set('page', String(params.page));
+    if (params.limit) searchParams.set('limit', String(params.limit));
+    if (params.status && params.status !== 'All') searchParams.set('status', params.status);
+    if (params.search) searchParams.set('search', params.search);
+    return request<import('../types').PaginatedInvestmentsResult>(`/investor/investments?${searchParams.toString()}`);
+  },
+
+
   getInvestorInvestment: (id: string) =>
     request<import('../types').InvestorInvestment>(`/investor/investments/${id}`),
   createInvestorInvestment: (body: Partial<import('../types').InvestorInvestment>) =>
@@ -110,8 +214,21 @@ export const api = {
   // ═══════════════════════════════════════════════════════════════
   // INVESTOR PAYMENTS
   // ═══════════════════════════════════════════════════════════════
-  getInvestorPayments: (investmentId?: string) =>
-    request<import('../types').InvestorPayment[]>(`/investor/payments${investmentId ? `?investmentId=${investmentId}` : ''}`),
+  getInvestorPayments: (params?: { page?: number; limit?: number; status?: string; search?: string; investmentId?: string } | string): Promise<any> => {
+    if (typeof params === 'string') {
+      return request<import('../types').InvestorPayment[]>(`/investor/payments?investmentId=${encodeURIComponent(params)}`);
+    }
+    if (!params) return request<import('../types').InvestorPayment[]>('/investor/payments');
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.set('page', String(params.page));
+    if (params.limit) searchParams.set('limit', String(params.limit));
+    if (params.status && params.status !== 'All') searchParams.set('status', params.status);
+    if (params.search) searchParams.set('search', params.search);
+    if (params.investmentId) searchParams.set('investmentId', params.investmentId);
+    return request<import('../types').PaginatedPaymentsResult>(`/investor/payments?${searchParams.toString()}`);
+  },
+
+
   createInvestorPayment: (body: Partial<import('../types').InvestorPayment>) =>
     request<import('../types').InvestorPayment>('/investor/payments', { method: 'POST', body: JSON.stringify(body) }),
   updateInvestorPayment: (id: string, body: Partial<import('../types').InvestorPayment>) =>
@@ -125,8 +242,17 @@ export const api = {
   // ═══════════════════════════════════════════════════════════════
   // BORROWER LOANS
   // ═══════════════════════════════════════════════════════════════
-  getBorrowerLoans: () =>
-    request<import('../types').BorrowerLoan[]>('/borrower/loans'),
+  getBorrowerLoans: (params?: { page?: number; limit?: number; status?: string; search?: string }): Promise<any> => {
+    if (!params) return request<import('../types').BorrowerLoan[]>('/borrower/loans');
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.set('page', String(params.page));
+    if (params.limit) searchParams.set('limit', String(params.limit));
+    if (params.status && params.status !== 'All') searchParams.set('status', params.status);
+    if (params.search) searchParams.set('search', params.search);
+    return request<import('../types').PaginatedLoansResult>(`/borrower/loans?${searchParams.toString()}`);
+  },
+
+
   getBorrowerLoan: (id: string) =>
     request<import('../types').BorrowerLoan>(`/borrower/loans/${id}`),
   createBorrowerLoan: (body: Partial<import('../types').BorrowerLoan>) =>
@@ -139,8 +265,21 @@ export const api = {
   // ═══════════════════════════════════════════════════════════════
   // BORROWER COLLECTIONS
   // ═══════════════════════════════════════════════════════════════
-  getBorrowerCollections: (loanId?: string) =>
-    request<import('../types').BorrowerCollection[]>(`/borrower/collections${loanId ? `?loanId=${loanId}` : ''}`),
+  getBorrowerCollections: (params?: { page?: number; limit?: number; status?: string; search?: string; loanId?: string } | string): Promise<any> => {
+    if (typeof params === 'string') {
+      return request<import('../types').BorrowerCollection[]>(`/borrower/collections?loanId=${encodeURIComponent(params)}`);
+    }
+    if (!params) return request<import('../types').BorrowerCollection[]>('/borrower/collections');
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.set('page', String(params.page));
+    if (params.limit) searchParams.set('limit', String(params.limit));
+    if (params.status && params.status !== 'All') searchParams.set('status', params.status);
+    if (params.search) searchParams.set('search', params.search);
+    if (params.loanId) searchParams.set('loanId', params.loanId);
+    return request<import('../types').PaginatedCollectionsResult>(`/borrower/collections?${searchParams.toString()}`);
+  },
+
+
   createBorrowerCollection: (body: Partial<import('../types').BorrowerCollection>) =>
     request<import('../types').BorrowerCollection>('/borrower/collections', { method: 'POST', body: JSON.stringify(body) }),
   updateBorrowerCollection: (id: string, body: Partial<import('../types').BorrowerCollection>) =>

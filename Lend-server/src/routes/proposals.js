@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { query } from '../db/index.js';
 import Proposal from '../models/Proposal.js';
 import Inquiry from '../models/Inquiry.js';
 import {
@@ -10,20 +11,30 @@ import {
   parsePositiveInteger,
   sanitizeString,
 } from '../utils/security.js';
+import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const router = Router();
 
 const ALLOWED_PATCH_STATUSES = Object.freeze(['Accepted', 'Rejected', 'Counter']);
 
 async function nextProposalId() {
-  const last = await Proposal.findOne().sort({ _id: -1 }).select('id').lean();
-  if (!last || typeof last.id !== 'string') return 'PROP-001';
-  const num = Number.parseInt(last.id.replace('PROP-', ''), 10) + 1;
-  return `PROP-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  try {
+    const res = await query(
+      `SELECT MAX(CAST(SUBSTRING(id FROM 6) AS INTEGER)) AS max_num FROM proposals WHERE id ~ '^PROP-[0-9]+$'`
+    );
+    const maxNum = res.rows[0]?.max_num;
+    const nextNum = (typeof maxNum === 'number' && !Number.isNaN(maxNum)) ? maxNum + 1 : 1;
+    return `PROP-${String(nextNum).padStart(3, '0')}`;
+  } catch {
+    const last = await Proposal.findOne().sort({ _id: -1 }).select('id').lean();
+    if (!last || typeof last.id !== 'string') return 'PROP-001';
+    const num = Number.parseInt(last.id.replace('PROP-', ''), 10) + 1;
+    return `PROP-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  }
 }
 
 // GET all proposals (optionally filter by inquiryId)
-router.get('/', async (req, res) => {
+router.get('/', cacheMiddleware({ ttl: 60, tags: ['proposals'] }), async (req, res) => {
   try {
     const filter = {};
     if (req.query.inquiryId !== undefined) {
@@ -44,7 +55,10 @@ router.get('/', async (req, res) => {
 });
 
 // GET single proposal
-router.get('/:id', async (req, res) => {
+router.get(
+  '/:id',
+  cacheMiddleware({ ttl: 300, tags: ['proposals'], keyGenerator: (req) => `api:/proposals:${req.params.id}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidId(id, ID_PATTERNS.proposal)) {
@@ -161,6 +175,7 @@ router.post('/', async (req, res) => {
       );
     }
 
+    await invalidateCache(['proposals', 'inquiries']);
     res.status(201).json(proposal.toObject());
   } catch (err) {
     console.error('Create proposal error:', sanitizeLog(err));
@@ -251,6 +266,7 @@ router.patch('/:id/status', async (req, res) => {
       );
     }
 
+    await invalidateCache(['proposals', 'inquiries']);
     res.json(proposal.toObject());
   } catch (err) {
     console.error('Update proposal status error:', sanitizeLog(err));
@@ -267,6 +283,7 @@ router.delete('/:id', async (req, res) => {
     }
     const result = await Proposal.findOneAndDelete({ id });
     if (!result) return res.status(404).json({ error: 'Proposal not found' });
+    await invalidateCache(['proposals', 'inquiries']);
     res.status(204).send();
   } catch (err) {
     console.error('Delete proposal error:', sanitizeLog(err));

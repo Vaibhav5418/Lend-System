@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Filter, AlertTriangle } from 'lucide-react';
+import { Filter, AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { BorrowerCollection } from '../types';
 
@@ -21,14 +21,43 @@ export default function BorrowerCollections() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [summary, setSummary] = useState({ totalCollected: 0, totalPending: 0, overdueCount: 0, totalPenalties: 0 });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     let isMounted = true;
     const load = async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const colData = await api.getBorrowerCollections();
+        const res = await api.getBorrowerCollections({
+          page: currentPage,
+          limit: pageSize,
+          status: statusFilter !== 'All' ? statusFilter : undefined,
+          search: debouncedSearch.trim() || undefined,
+        });
         if (isMounted) {
-          setCollections(colData);
+          if (res && 'data' in res && 'pagination' in res) {
+            setCollections(res.data);
+            setTotal(res.pagination.total);
+            setTotalPages(res.pagination.totalPages);
+            if (res.summary) setSummary(res.summary);
+          } else if (Array.isArray(res)) {
+            setCollections(res);
+            setTotal(res.length);
+            setTotalPages(Math.max(1, Math.ceil(res.length / pageSize)));
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -44,20 +73,13 @@ export default function BorrowerCollections() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentPage, pageSize, statusFilter, debouncedSearch]);
 
-  const filtered = collections
-    .filter((c) => statusFilter === 'All' || c.status === statusFilter)
-    .filter((c) => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return c.borrowerName.toLowerCase().includes(q) || c.loanId.toLowerCase().includes(q) || c.id.toLowerCase().includes(q);
-    });
-
-  const totalCollected = collections.filter(c => c.status === 'Received').reduce((s, c) => s + c.totalPaid, 0);
-  const totalPending = collections.filter(c => c.status === 'Pending' || c.status === 'Overdue').reduce((s, c) => s + c.pendingAmount, 0);
-  const overdueCount = collections.filter(c => c.status === 'Overdue' || c.status === 'Defaulted').length;
-  const totalPenalties = collections.reduce((s, c) => s + (c.penalty || 0), 0);
+  const paginatedCollections = collections;
+  const totalCollected = summary.totalCollected;
+  const totalPending = summary.totalPending;
+  const overdueCount = summary.overdueCount;
+  const totalPenalties = summary.totalPenalties;
 
   if (loading) return <div className="p-6 text-slate-500">Loading collections...</div>;
   if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
@@ -98,9 +120,9 @@ export default function BorrowerCollections() {
           </div>
           <input type="text" placeholder="Search borrower, loan ID..."
             aria-label="Search borrower or loan ID"
-            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
             className="w-full sm:w-auto min-w-0 px-3 py-1.5 border border-slate-300 rounded-lg text-sm" />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
             aria-label="Filter collections by status"
             className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm">
             <option value="All">All Status</option>
@@ -133,7 +155,7 @@ export default function BorrowerCollections() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filtered.map((c) => (
+              {paginatedCollections.map((c) => (
                 <tr key={c.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 text-sm font-medium text-sky-600">{c.id}</td>
                   <td className="px-4 py-3 text-sm text-slate-700">{c.loanId}</td>
@@ -162,12 +184,82 @@ export default function BorrowerCollections() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {collections.length === 0 && (
                 <tr><td colSpan={11} className="px-4 py-12 text-center text-slate-500">No collections found</td></tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {total > 0 && (
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-slate-700">
+            <div className="flex items-center gap-2">
+              <span>
+                Showing <span className="font-semibold">{((currentPage - 1) * pageSize) + 1}</span> to{' '}
+                <span className="font-semibold">{Math.min(currentPage * pageSize, total).toLocaleString()}</span> of{' '}
+                <span className="font-semibold">{total.toLocaleString()}</span> collections
+              </span>
+              <div className="flex items-center gap-1.5 ml-4">
+                <span className="text-xs text-slate-500">Rows:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-sky-500"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First Page"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-3 py-1 font-medium text-xs bg-white border border-slate-300 rounded">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last Page"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

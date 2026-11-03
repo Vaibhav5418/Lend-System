@@ -1,6 +1,6 @@
 import { query } from '../db/index.js';
 
-function mapRowToCollection(row) {
+export function mapRowToCollection(row) {
   if (!row) return null;
   return {
     id: row.id,

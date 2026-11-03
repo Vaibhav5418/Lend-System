@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import BorrowerLoan from '../models/BorrowerLoan.js';
-import BorrowerCollection from '../models/BorrowerCollection.js';
+import { query } from '../db/index.js';
+import BorrowerLoan, { mapRowToLoan } from '../models/BorrowerLoan.js';
+import BorrowerCollection, { mapRowToCollection } from '../models/BorrowerCollection.js';
 import Inquiry from '../models/Inquiry.js';
 import { generateRepaymentSchedule, toAnnualRate } from '../utils/financialCalc.js';
 import {
@@ -12,6 +13,7 @@ import {
   parsePositiveInteger,
   sanitizeString,
 } from '../utils/security.js';
+import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const router = Router();
 
@@ -23,26 +25,123 @@ const ALLOWED_COLLECTION_STATUSES = Object.freeze(['Received', 'Pending', 'Overd
 
 // ─── ID generators ───────────────────────────────────────────────
 async function nextLoanId() {
-  const last = await BorrowerLoan.findOne().sort({ _id: -1 }).select('id').lean();
-  if (!last || typeof last.id !== 'string') return 'LOAN-001';
-  const num = Number.parseInt(last.id.replace('LOAN-', ''), 10) + 1;
-  return `LOAN-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  try {
+    const res = await query(
+      `SELECT MAX(CAST(SUBSTRING(id FROM 6) AS INTEGER)) AS max_num FROM borrower_loans WHERE id ~ '^LOAN-[0-9]+$'`
+    );
+    const maxNum = res.rows[0]?.max_num;
+    const nextNum = (typeof maxNum === 'number' && !Number.isNaN(maxNum)) ? maxNum + 1 : 1;
+    return `LOAN-${String(nextNum).padStart(3, '0')}`;
+  } catch {
+    const last = await BorrowerLoan.findOne().sort({ _id: -1 }).select('id').lean();
+    if (!last || typeof last.id !== 'string') return 'LOAN-001';
+    const num = Number.parseInt(last.id.replace('LOAN-', ''), 10) + 1;
+    return `LOAN-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  }
 }
 
 async function nextCollectionId() {
-  const last = await BorrowerCollection.findOne().sort({ _id: -1 }).select('id').lean();
-  if (!last || typeof last.id !== 'string') return 'COL-001';
-  const num = Number.parseInt(last.id.replace('COL-', ''), 10) + 1;
-  return `COL-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  try {
+    const res = await query(
+      `SELECT MAX(CAST(SUBSTRING(id FROM 5) AS INTEGER)) AS max_num FROM borrower_collections WHERE id ~ '^COL-[0-9]+$'`
+    );
+    const maxNum = res.rows[0]?.max_num;
+    const nextNum = (typeof maxNum === 'number' && !Number.isNaN(maxNum)) ? maxNum + 1 : 1;
+    return `COL-${String(nextNum).padStart(3, '0')}`;
+  } catch {
+    const last = await BorrowerCollection.findOne().sort({ _id: -1 }).select('id').lean();
+    if (!last || typeof last.id !== 'string') return 'COL-001';
+    const num = Number.parseInt(last.id.replace('COL-', ''), 10) + 1;
+    return `COL-${String(Number.isNaN(num) ? 1 : num).padStart(3, '0')}`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // LOANS  (Lended / Approved Loans)
 // ═══════════════════════════════════════════════════════════════════
 
-// GET all loans
-router.get('/loans', async (_req, res) => {
+// GET all loans (with server-side pagination, search, and pre-aggregated KPI summaries)
+router.get('/loans', cacheMiddleware({ ttl: 60, tags: ['borrower', 'loans'] }), async (req, res) => {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit || req.query.pageSize, 10) || (req.query.page || req.query.paginate === 'true' ? 25 : 50)));
+    const isPaginatedRequest = Boolean(req.query.page || req.query.limit || req.query.pageSize || req.query.paginate === 'true' || req.query.search || req.query.status);
+
+    const whereClauses = [];
+    const params = [];
+
+    if (req.query.status && req.query.status !== 'All' && ALLOWED_LOAN_STATUSES.includes(req.query.status)) {
+      params.push(req.query.status);
+      whereClauses.push(`status = $${params.length}`);
+    }
+
+    if (req.query.search && typeof req.query.search === 'string') {
+      const s = req.query.search.trim().slice(0, 100);
+      if (s) {
+        params.push(`%${s}%`);
+        const pIdx = params.length;
+        whereClauses.push(`(
+          borrower_name ILIKE $${pIdx} OR
+          id ILIKE $${pIdx} OR
+          company_name ILIKE $${pIdx}
+        )`);
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    if (isPaginatedRequest) {
+      const summarySql = `
+        SELECT
+          COALESCE(SUM(CASE WHEN status = 'Active' THEN approved_amount ELSE 0 END), 0) AS deployed,
+          COALESCE(SUM(CASE WHEN status = 'Active' THEN monthly_interest ELSE 0 END), 0) AS monthly_income,
+          COUNT(CASE WHEN status = 'Active' THEN 1 END) AS active,
+          COUNT(CASE WHEN status = 'Defaulted' THEN 1 END) AS defaulted
+        FROM borrower_loans;
+      `;
+
+      const offset = (page - 1) * limit;
+      params.push(limit);
+      const limitParam = params.length;
+      params.push(offset);
+      const offsetParam = params.length;
+
+      const dataSql = `
+        SELECT *, COUNT(*) OVER() as _full_count
+        FROM borrower_loans
+        ${whereSql}
+        ORDER BY created_at DESC
+        LIMIT $${limitParam} OFFSET $${offsetParam};
+      `;
+
+      const [summaryRes, dataRes] = await Promise.all([
+        query(summarySql),
+        query(dataSql, params),
+      ]);
+
+      const sRow = summaryRes.rows[0] || {};
+      const summary = {
+        deployed: Number(sRow.deployed || 0),
+        monthlyIncome: Number(sRow.monthly_income || 0),
+        active: Number(sRow.active || 0),
+        defaulted: Number(sRow.defaulted || 0),
+      };
+
+      const total = dataRes.rows.length > 0 ? Number.parseInt(dataRes.rows[0]._full_count, 10) : 0;
+      const data = dataRes.rows.map(mapRowToLoan);
+
+      return res.json({
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+        summary,
+      });
+    }
+
     const loans = await BorrowerLoan.find().sort({ createdAt: -1 }).lean();
     res.json(loans);
   } catch (err) {
@@ -52,7 +151,10 @@ router.get('/loans', async (_req, res) => {
 });
 
 // GET single loan
-router.get('/loans/:id', async (req, res) => {
+router.get(
+  '/loans/:id',
+  cacheMiddleware({ ttl: 300, tags: ['borrower'], keyGenerator: (req) => `api:/borrower/loans:${req.params.id}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidId(id, ID_PATTERNS.loan)) {
@@ -189,6 +291,7 @@ router.post('/loans', async (req, res) => {
       }
     );
 
+    await invalidateCache(['borrower', 'loans', 'profit', 'dashboard', 'inquiries']);
     res.status(201).json(loan.toObject());
   } catch (err) {
     console.error('Create loan error:', sanitizeLog(err));
@@ -280,6 +383,7 @@ router.put('/loans/:id', async (req, res) => {
     }
 
     await loan.save(); // triggers pre-save hook for auto-calc
+    await invalidateCache(['borrower', 'loans', 'profit', 'dashboard', 'inquiries']);
     res.json(loan.toObject());
   } catch (err) {
     console.error('Update loan error:', sanitizeLog(err));
@@ -296,6 +400,7 @@ router.delete('/loans/:id', async (req, res) => {
     }
     const result = await BorrowerLoan.findOneAndDelete({ id });
     if (!result) return res.status(404).json({ error: 'Loan not found' });
+    await invalidateCache(['borrower', 'loans', 'profit', 'dashboard', 'inquiries']);
     res.status(204).send();
   } catch (err) {
     console.error('Delete loan error:', sanitizeLog(err));
@@ -307,19 +412,101 @@ router.delete('/loans/:id', async (req, res) => {
 // COLLECTIONS  (Repayments from borrowers)
 // ═══════════════════════════════════════════════════════════════════
 
-// GET all collections (optionally filter by loanId)
-router.get('/collections', async (req, res) => {
+// GET all collections (with server-side pagination, search, and pre-aggregated summaries)
+router.get('/collections', cacheMiddleware({ ttl: 60, tags: ['borrower', 'collections'] }), async (req, res) => {
   try {
-    const filter = {};
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit || req.query.pageSize, 10) || (req.query.page || req.query.paginate === 'true' ? 25 : 50)));
+    const isPaginatedRequest = Boolean(req.query.page || req.query.limit || req.query.pageSize || req.query.paginate === 'true' || req.query.search || req.query.status || req.query.loanId);
+
+    const whereClauses = [];
+    const params = [];
+
     if (req.query.loanId !== undefined) {
       const parsedLoanId = parseQueryId(req.query.loanId, ID_PATTERNS.loan, 'loanId');
       if (!parsedLoanId.valid) {
         return res.status(400).json({ error: parsedLoanId.error });
       }
       if (parsedLoanId.value) {
-        filter.loanId = parsedLoanId.value;
+        params.push(parsedLoanId.value);
+        whereClauses.push(`loan_id = $${params.length}`);
       }
     }
+
+    if (req.query.status && req.query.status !== 'All' && ALLOWED_COLLECTION_STATUSES.includes(req.query.status)) {
+      params.push(req.query.status);
+      whereClauses.push(`status = $${params.length}`);
+    }
+
+    if (req.query.search && typeof req.query.search === 'string') {
+      const s = req.query.search.trim().slice(0, 100);
+      if (s) {
+        params.push(`%${s}%`);
+        const pIdx = params.length;
+        whereClauses.push(`(
+          borrower_name ILIKE $${pIdx} OR
+          loan_id ILIKE $${pIdx} OR
+          id ILIKE $${pIdx}
+        )`);
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    if (isPaginatedRequest) {
+      const summarySql = `
+        SELECT
+          COALESCE(SUM(CASE WHEN status = 'Received' THEN total_paid ELSE 0 END), 0) AS total_collected,
+          COALESCE(SUM(CASE WHEN status IN ('Pending', 'Overdue') THEN pending_amount ELSE 0 END), 0) AS total_pending,
+          COUNT(CASE WHEN status IN ('Overdue', 'Defaulted') THEN 1 END) AS overdue_count,
+          COALESCE(SUM(penalty), 0) AS total_penalties
+        FROM borrower_collections;
+      `;
+
+      const offset = (page - 1) * limit;
+      params.push(limit);
+      const limitParam = params.length;
+      params.push(offset);
+      const offsetParam = params.length;
+
+      const dataSql = `
+        SELECT *, COUNT(*) OVER() as _full_count
+        FROM borrower_collections
+        ${whereSql}
+        ORDER BY payment_date DESC
+        LIMIT $${limitParam} OFFSET $${offsetParam};
+      `;
+
+      const [summaryRes, dataRes] = await Promise.all([
+        query(summarySql),
+        query(dataSql, params),
+      ]);
+
+      const sRow = summaryRes.rows[0] || {};
+      const summary = {
+        totalCollected: Number(sRow.total_collected || 0),
+        totalPending: Number(sRow.total_pending || 0),
+        overdueCount: Number(sRow.overdue_count || 0),
+        totalPenalties: Number(sRow.total_penalties || 0),
+      };
+
+      const total = dataRes.rows.length > 0 ? Number.parseInt(dataRes.rows[0]._full_count, 10) : 0;
+      const data = dataRes.rows.map(mapRowToCollection);
+
+      return res.json({
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+        summary,
+      });
+    }
+
+    const filter = {};
+    if (req.query.loanId) filter.loanId = req.query.loanId;
     const cols = await BorrowerCollection.find(filter).sort({ paymentDate: -1 }).lean();
     res.json(cols);
   } catch (err) {
@@ -329,7 +516,10 @@ router.get('/collections', async (req, res) => {
 });
 
 // GET single collection
-router.get('/collections/:id', async (req, res) => {
+router.get(
+  '/collections/:id',
+  cacheMiddleware({ ttl: 300, tags: ['borrower'], keyGenerator: (req) => `api:/borrower/collections:${req.params.id}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidId(id, ID_PATTERNS.collection)) {
@@ -426,6 +616,7 @@ router.post('/collections', async (req, res) => {
       }
     }
 
+    await invalidateCache(['borrower', 'collections', 'profit']);
     res.status(201).json(collection.toObject());
   } catch (err) {
     console.error('Create collection error:', sanitizeLog(err));
@@ -480,6 +671,7 @@ router.put('/collections/:id', async (req, res) => {
     if (req.body.remarks !== undefined) col.remarks = sanitizeString(req.body.remarks, 1000);
 
     await col.save(); // triggers pre-save hook for totalPaid & overdueDays
+    await invalidateCache(['borrower', 'collections', 'profit']);
     res.json(col.toObject());
   } catch (err) {
     console.error('Update collection error:', sanitizeLog(err));
@@ -496,6 +688,7 @@ router.delete('/collections/:id', async (req, res) => {
     }
     const result = await BorrowerCollection.findOneAndDelete({ id });
     if (!result) return res.status(404).json({ error: 'Collection not found' });
+    await invalidateCache(['borrower', 'collections', 'profit']);
     res.status(204).send();
   } catch (err) {
     console.error('Delete collection error:', sanitizeLog(err));
@@ -503,36 +696,38 @@ router.delete('/collections/:id', async (req, res) => {
   }
 });
 
-// ─── Upcoming Interest dues widget ──────────────────────────────
-router.get('/upcoming-dues', async (_req, res) => {
+// ─── Upcoming Interest dues widget (Optimized JSONB extraction) ────
+router.get('/upcoming-dues', cacheMiddleware({ ttl: 120, tags: ['borrower', 'loans', 'collections'] }), async (_req, res) => {
   try {
-    const now = new Date();
-    const thirtyDaysLater = new Date();
-    thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
-
-    const activeLoans = await BorrowerLoan.find({ status: 'Active' }).lean();
-    const upcoming = [];
-
-    for (const loan of activeLoans) {
-      if (!Array.isArray(loan.repaymentSchedule)) continue;
-      for (const entry of loan.repaymentSchedule) {
-        const dueDate = new Date(entry.dueDate);
-        if (entry.status === 'Pending' && dueDate <= thirtyDaysLater) {
-          upcoming.push({
-            loanId: loan.id,
-            borrowerName: loan.borrowerName,
-            month: entry.month,
-            dueDate: entry.dueDate,
-            totalDue: entry.totalDue,
-            interestDue: entry.interestDue,
-            principalDue: entry.principalDue,
-            isOverdue: dueDate < now,
-          });
-        }
-      }
-    }
-
-    upcoming.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    const sql = `
+      SELECT
+        id AS "loanId",
+        borrower_name AS "borrowerName",
+        (entry->>'month')::int AS "month",
+        entry->>'dueDate' AS "dueDate",
+        (entry->>'totalDue')::numeric AS "totalDue",
+        (entry->>'interestDue')::numeric AS "interestDue",
+        (entry->>'principalDue')::numeric AS "principalDue",
+        ((entry->>'dueDate')::timestamptz < NOW()) AS "isOverdue"
+      FROM borrower_loans,
+      jsonb_array_elements(repayment_schedule) AS entry
+      WHERE status = 'Active'
+        AND entry->>'status' = 'Pending'
+        AND (entry->>'dueDate')::timestamptz <= (NOW() + interval '30 days')
+      ORDER BY (entry->>'dueDate')::timestamptz ASC
+      LIMIT 100;
+    `;
+    const result = await query(sql);
+    const upcoming = result.rows.map(r => ({
+      loanId: r.loanId,
+      borrowerName: r.borrowerName,
+      month: r.month,
+      dueDate: r.dueDate,
+      totalDue: Number(r.totalDue || 0),
+      interestDue: Number(r.interestDue || 0),
+      principalDue: Number(r.principalDue || 0),
+      isOverdue: Boolean(r.isOverdue),
+    }));
     res.json(upcoming);
   } catch (err) {
     console.error('Fetch upcoming dues error:', sanitizeLog(err));

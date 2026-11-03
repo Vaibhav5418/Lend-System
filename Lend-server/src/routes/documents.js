@@ -14,6 +14,7 @@ import { generateProfileScore } from '../services/grokService.js';
 import Inquiry from '../models/Inquiry.js';
 import Document from '../models/Document.js';
 import { isValidId, ID_PATTERNS, sanitizeLog } from '../utils/security.js';
+import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const router = Router({ mergeParams: true });
 
@@ -136,7 +137,10 @@ function validateFileSignature(buffer, mimetype, ext) {
 /**
  * GET /api/inquiries/:inquiryId/documents
  */
-router.get('/', async (req, res) => {
+router.get(
+  '/',
+  cacheMiddleware({ ttl: 120, tags: ['documents'], keyGenerator: (req) => `api:/documents:${req.params.inquiryId}` }),
+  async (req, res) => {
   try {
     const { inquiryId } = req.params;
     if (!isValidId(inquiryId, ID_PATTERNS.inquiry)) {
@@ -215,6 +219,7 @@ router.post(
         originalname: req.file.originalname,
         mimetype: req.file.mimetype,
       });
+      await invalidateCache(['documents', 'inquiries']);
       res.status(201).json(doc);
     } catch (err) {
       console.error('Document upload error:', sanitizeLog(err));
@@ -258,6 +263,7 @@ router.post('/combined-report', async (req, res) => {
         },
       }
     );
+    await invalidateCache(['documents', 'inquiries']);
     res.json({ markdown, profileScore, profileScoreRating });
   } catch (err) {
     console.error('Combined report error:', sanitizeLog(err));
@@ -315,6 +321,7 @@ router.post('/:docId/summary', async (req, res) => {
     }
     const doc = await regenerateDocumentSummary(inquiryId, docId);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
+    await invalidateCache(['documents', 'inquiries']);
     res.json(doc);
   } catch (err) {
     console.error('Regenerate summary error:', sanitizeLog(err));
@@ -338,6 +345,7 @@ router.delete('/:docId', async (req, res) => {
     }
     const deleted = await deleteInquiryDocument(inquiryId, docId);
     if (!deleted) return res.status(404).json({ error: 'Document not found' });
+    await invalidateCache(['documents', 'inquiries']);
     res.status(204).send();
   } catch (err) {
     console.error('Delete document error:', sanitizeLog(err));

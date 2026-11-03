@@ -1,6 +1,6 @@
 import { query } from '../db/index.js';
 
-function mapRowToInvestment(row) {
+export function mapRowToInvestment(row) {
   if (!row) return null;
   return {
     id: row.id,

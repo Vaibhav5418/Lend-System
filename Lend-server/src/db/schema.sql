@@ -58,6 +58,14 @@ CREATE INDEX IF NOT EXISTS idx_inquiries_type ON inquiries (type);
 CREATE INDEX IF NOT EXISTS idx_inquiries_stage ON inquiries (stage);
 CREATE INDEX IF NOT EXISTS idx_inquiries_assigned_to ON inquiries (assigned_to);
 CREATE INDEX IF NOT EXISTS idx_inquiries_created_at ON inquiries (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inquiries_type_stage ON inquiries (type, stage);
+CREATE INDEX IF NOT EXISTS idx_inquiries_type_created_at ON inquiries (type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inquiries_priority ON inquiries (priority);
+CREATE INDEX IF NOT EXISTS idx_inquiries_name_lower ON inquiries (LOWER(name));
+CREATE INDEX IF NOT EXISTS idx_inquiries_mobile ON inquiries (mobile);
+CREATE INDEX IF NOT EXISTS idx_inquiries_email_lower ON inquiries (LOWER(email));
+CREATE INDEX IF NOT EXISTS idx_inquiries_id_num ON inquiries ((NULLIF(regexp_replace(id, '\D', '', 'g'), '')::bigint));
+CREATE INDEX IF NOT EXISTS idx_inquiries_stage_created ON inquiries (stage, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS documents (
   id VARCHAR(24) PRIMARY KEY,
@@ -97,6 +105,8 @@ CREATE TABLE IF NOT EXISTS proposals (
 CREATE INDEX IF NOT EXISTS idx_proposals_inquiry_id ON proposals (inquiry_id);
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals (status);
 CREATE INDEX IF NOT EXISTS idx_proposals_created_at ON proposals (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_proposals_status_created ON proposals (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_proposals_borrower_name_lower ON proposals (LOWER(borrower_name));
 
 CREATE TABLE IF NOT EXISTS borrower_loans (
   id VARCHAR(50) PRIMARY KEY,
@@ -127,6 +137,8 @@ CREATE TABLE IF NOT EXISTS borrower_loans (
 CREATE INDEX IF NOT EXISTS idx_borrower_loans_inquiry_id ON borrower_loans (inquiry_id);
 CREATE INDEX IF NOT EXISTS idx_borrower_loans_status ON borrower_loans (status);
 CREATE INDEX IF NOT EXISTS idx_borrower_loans_created_at ON borrower_loans (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_borrower_loans_status_created ON borrower_loans (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_borrower_loans_borrower_name_lower ON borrower_loans (LOWER(borrower_name));
 
 CREATE TABLE IF NOT EXISTS borrower_collections (
   id VARCHAR(50) PRIMARY KEY,
@@ -151,6 +163,9 @@ CREATE INDEX IF NOT EXISTS idx_borrower_collections_loan_id ON borrower_collecti
 CREATE INDEX IF NOT EXISTS idx_borrower_collections_status ON borrower_collections (status);
 CREATE INDEX IF NOT EXISTS idx_borrower_collections_due_date ON borrower_collections (due_date);
 CREATE INDEX IF NOT EXISTS idx_borrower_collections_payment_date ON borrower_collections (payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_borrower_collections_status_due ON borrower_collections (status, due_date);
+CREATE INDEX IF NOT EXISTS idx_borrower_collections_loan_status ON borrower_collections (loan_id, status);
+CREATE INDEX IF NOT EXISTS idx_borrower_collections_borrower_name_lower ON borrower_collections (LOWER(borrower_name));
 
 CREATE TABLE IF NOT EXISTS investor_investments (
   id VARCHAR(50) PRIMARY KEY,
@@ -179,6 +194,8 @@ CREATE TABLE IF NOT EXISTS investor_investments (
 CREATE INDEX IF NOT EXISTS idx_investor_investments_inquiry_id ON investor_investments (inquiry_id);
 CREATE INDEX IF NOT EXISTS idx_investor_investments_status ON investor_investments (status);
 CREATE INDEX IF NOT EXISTS idx_investor_investments_created_at ON investor_investments (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_investor_investments_status_created ON investor_investments (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_investor_investments_investor_name_lower ON investor_investments (LOWER(investor_name));
 
 CREATE TABLE IF NOT EXISTS investor_payments (
   id VARCHAR(50) PRIMARY KEY,
@@ -201,3 +218,6 @@ CREATE INDEX IF NOT EXISTS idx_investor_payments_investment_id ON investor_payme
 CREATE INDEX IF NOT EXISTS idx_investor_payments_status ON investor_payments (status);
 CREATE INDEX IF NOT EXISTS idx_investor_payments_due_date ON investor_payments (due_date);
 CREATE INDEX IF NOT EXISTS idx_investor_payments_payment_date ON investor_payments (payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_investor_payments_status_due ON investor_payments (status, due_date);
+CREATE INDEX IF NOT EXISTS idx_investor_payments_inv_status ON investor_payments (investment_id, status);
+CREATE INDEX IF NOT EXISTS idx_investor_payments_investor_name_lower ON investor_payments (LOWER(investor_name));

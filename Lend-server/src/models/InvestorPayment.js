@@ -1,6 +1,6 @@
 import { query } from '../db/index.js';
 
-function mapRowToPayment(row) {
+export function mapRowToPayment(row) {
   if (!row) return null;
   return {
     id: row.id,

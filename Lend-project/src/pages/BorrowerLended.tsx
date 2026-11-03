@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Filter, Eye, Calendar, TrendingUp, Users, AlertTriangle, Receipt } from 'lucide-react';
+import { Filter, Eye, Calendar, TrendingUp, Users, AlertTriangle, Receipt, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { BorrowerLoan, UpcomingDue, PaymentMode, CollectionStatus } from '../types';
 import { formatIndianShort, formatCurrencyShort } from '../utils/formatters';
@@ -21,7 +21,13 @@ export default function BorrowerLended() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totals, setTotals] = useState({ deployed: 0, monthlyIncome: 0, active: 0, defaulted: 0 });
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [selectedLoan, setSelectedLoan] = useState<BorrowerLoan | null>(null);
   const [collectionLoan, setCollectionLoan] = useState<BorrowerLoan | null>(null);
   const [submittingCol, setSubmittingCol] = useState(false);
@@ -46,14 +52,37 @@ export default function BorrowerLended() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const loadData = useCallback(async () => {
     try {
       const [loanData, dues] = await Promise.all([
-        api.getBorrowerLoans(),
+        api.getBorrowerLoans({
+          page: currentPage,
+          limit: pageSize,
+          status: statusFilter !== 'All' ? statusFilter : undefined,
+          search: debouncedSearch.trim() || undefined,
+        }),
         api.getUpcomingDues(),
       ]);
       if (isMountedRef.current) {
-        setLoans(loanData);
+        if (loanData && 'data' in loanData && 'pagination' in loanData) {
+          setLoans(loanData.data);
+          setTotal(loanData.pagination.total);
+          setTotalPages(loanData.pagination.totalPages);
+          if (loanData.summary) {
+            setTotals(loanData.summary);
+          }
+        } else if (Array.isArray(loanData)) {
+          setLoans(loanData);
+          setTotal(loanData.length);
+          setTotalPages(Math.max(1, Math.ceil(loanData.length / pageSize)));
+        }
         setUpcomingDues(dues);
       }
     } catch (err) {
@@ -65,7 +94,7 @@ export default function BorrowerLended() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [currentPage, pageSize, statusFilter, debouncedSearch]);
 
   useEffect(() => {
     void loadData();
@@ -114,21 +143,7 @@ export default function BorrowerLended() {
     }
   };
 
-  const filtered = loans
-    .filter((l) => statusFilter === 'All' || l.status === statusFilter)
-    .filter((l) => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return l.borrowerName.toLowerCase().includes(q) || l.id.toLowerCase().includes(q) || l.companyName?.toLowerCase().includes(q);
-    });
-
-  const totals = {
-    deployed: loans.filter(l => l.status === 'Active').reduce((s, l) => s + l.approvedAmount, 0),
-    monthlyIncome: loans.filter(l => l.status === 'Active').reduce((s, l) => s + l.monthlyInterest, 0),
-    active: loans.filter(l => l.status === 'Active').length,
-    defaulted: loans.filter(l => l.status === 'Defaulted').length,
-  };
-
+  const paginatedLoans = loans;
   const overdueDues = upcomingDues.filter(d => d.isOverdue);
 
   if (loading) return <div className="p-6 text-slate-500">Loading loans...</div>;
@@ -212,9 +227,9 @@ export default function BorrowerLended() {
             <span className="text-sm font-medium text-slate-700">Filters:</span>
           </div>
           <input type="text" placeholder="Search borrower, loan ID, company..."
-            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
             className="w-full sm:w-auto min-w-0 px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm" />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
             className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm">
             <option value="All">All Status</option>
             <option value="Active">Active</option>
@@ -243,7 +258,7 @@ export default function BorrowerLended() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filtered.map((loan) => (
+              {paginatedLoans.map((loan) => (
                 <tr key={loan.id} className="hover:bg-sky-50/40 transition-colors">
                   <td className="px-4 py-3 text-sm font-medium text-sky-600">{loan.id}</td>
                   <td className="px-4 py-3">
@@ -278,12 +293,82 @@ export default function BorrowerLended() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {loans.length === 0 && (
                 <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500">No loans found</td></tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {total > 0 && (
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-slate-700">
+            <div className="flex items-center gap-2">
+              <span>
+                Showing <span className="font-semibold">{((currentPage - 1) * pageSize) + 1}</span> to{' '}
+                <span className="font-semibold">{Math.min(currentPage * pageSize, total).toLocaleString()}</span> of{' '}
+                <span className="font-semibold">{total.toLocaleString()}</span> loans
+              </span>
+              <div className="flex items-center gap-1.5 ml-4">
+                <span className="text-xs text-slate-500">Rows:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-sky-500"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First Page"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-3 py-1 font-medium text-xs bg-white border border-slate-300 rounded">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last Page"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detail Modal with Repayment Schedule */}

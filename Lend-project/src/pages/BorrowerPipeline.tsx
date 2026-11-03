@@ -1,25 +1,74 @@
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Phone, Mail, Calendar, TrendingUp } from 'lucide-react';
-import { useInquiryCache } from '../context/InquiryCacheContext';
-import { BORROWER_STAGES, STAGE_LABELS, type BorrowerStage } from '../types';
+import { api } from '../api/client';
+import { BORROWER_STAGES, STAGE_LABELS, type BorrowerStage, type Inquiry, type StageSummaryItem } from '../types';
 
 const stages = [...BORROWER_STAGES];
 
 export default function BorrowerPipeline() {
   const navigate = useNavigate();
-  const { inquiries, loading, error } = useInquiryCache();
+  const [summary, setSummary] = useState<StageSummaryItem[]>([]);
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const borrowerInquiries = inquiries.filter((inq) => inq.type === 'Borrower');
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [sumRes, inqRes] = await Promise.all([
+          api.getStageSummary('Borrower'),
+          api.getInquiries({ type: 'Borrower', limit: 100 }),
+        ]);
+        if (isMounted) {
+          setSummary(sumRes);
+          if (inqRes && 'data' in inqRes) {
+            setInquiries(inqRes.data);
+          } else if (Array.isArray(inqRes)) {
+            setInquiries(inqRes);
+          }
+        }
+      } catch (err) {
+        if (isMounted) setError(err instanceof Error ? err.message : 'Failed to load pipeline');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const summaryMap = useMemo(() => {
+    const map = new Map<string, StageSummaryItem>();
+    for (const item of summary) {
+      map.set(item.stage, item);
+    }
+    return map;
+  }, [summary]);
+
+  const totalBorrowers = useMemo(() => summary.reduce((s, item) => s + item.count, 0), [summary]);
+  const activeCount = useMemo(
+    () => summary.filter((i) => i.stage !== 'APPROVED' && i.stage !== 'DISBURSED').reduce((s, item) => s + item.count, 0),
+    [summary]
+  );
+  const approvedCount = useMemo(() => summaryMap.get('APPROVED')?.count ?? 0, [summaryMap]);
+  const disbursedCount = useMemo(() => summaryMap.get('DISBURSED')?.count ?? 0, [summaryMap]);
 
   const getInquiriesByStage = (stage: BorrowerStage) => {
-    return borrowerInquiries.filter((inq) => inq.stage === stage);
+    return inquiries.filter((inq) => inq.stage === stage);
+  };
+
+  const getStageCount = (stage: BorrowerStage) => {
+    return summaryMap.get(stage)?.count ?? 0;
   };
 
   const getTotalAmount = (stage: BorrowerStage) => {
-    return getInquiriesByStage(stage).reduce(
-      (sum, inq) => sum + (inq.borrowerDetails?.loanAmount || 0),
-      0
-    );
+    return summaryMap.get(stage)?.totalAmount ?? 0;
   };
 
   if (loading) return <div className="p-6 text-gray-500">Loading pipeline...</div>;
@@ -36,25 +85,19 @@ export default function BorrowerPipeline() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Total Borrowers</p>
-          <p className="text-2xl font-bold text-gray-900">{borrowerInquiries.length}</p>
+          <p className="text-2xl font-bold text-gray-900">{totalBorrowers.toLocaleString('en-IN')}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Active</p>
-          <p className="text-2xl font-bold text-blue-600">
-            {borrowerInquiries.filter((inq) => inq.stage !== 'APPROVED' && inq.stage !== 'DISBURSED').length}
-          </p>
+          <p className="text-2xl font-bold text-blue-600">{activeCount.toLocaleString('en-IN')}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Approved</p>
-          <p className="text-2xl font-bold text-green-600">
-            {borrowerInquiries.filter((inq) => inq.stage === 'APPROVED').length}
-          </p>
+          <p className="text-2xl font-bold text-green-600">{approvedCount.toLocaleString('en-IN')}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Disbursed</p>
-          <p className="text-2xl font-bold text-purple-600">
-            {borrowerInquiries.filter((inq) => inq.stage === 'DISBURSED').length}
-          </p>
+          <p className="text-2xl font-bold text-purple-600">{disbursedCount.toLocaleString('en-IN')}</p>
         </div>
       </div>
 
@@ -63,6 +106,7 @@ export default function BorrowerPipeline() {
         <div className="flex gap-4 min-w-max">
           {stages.map((stage) => {
             const stageInquiries = getInquiriesByStage(stage);
+            const stageCount = getStageCount(stage);
             const totalAmount = getTotalAmount(stage);
 
             return (
@@ -75,7 +119,7 @@ export default function BorrowerPipeline() {
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-gray-900">{STAGE_LABELS[stage] ?? stage}</h3>
                     <span className="bg-blue-100 text-blue-700 text-xs font-medium px-2 py-1 rounded-full">
-                      {stageInquiries.length}
+                      {stageCount.toLocaleString('en-IN')}
                     </span>
                   </div>
                   {totalAmount > 0 && (

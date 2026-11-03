@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { TrendingUp, Users, DollarSign, ArrowUp, ArrowDown, Wallet, Landmark } from 'lucide-react';
 import {
   BarChart,
@@ -16,7 +16,8 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { useInquiryCache } from '../context/InquiryCacheContext';
+import { api } from '../api/client';
+import type { DashboardStatsData } from '../types';
 import DashboardSkeleton from '../components/DashboardSkeleton';
 import { formatCurrencyShort } from '../utils/formatters';
 
@@ -25,68 +26,38 @@ const formatFunding = (amount: number): string => {
 };
 
 export default function Dashboard() {
-  const { inquiries, loading, error } = useInquiryCache();
+  const [data, setData] = useState<DashboardStatsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const borrowers = inquiries.filter((i) => i.type === 'Borrower');
-  const investors = inquiries.filter((i) => i.type === 'Investor');
+  useEffect(() => {
+    let isMounted = true;
+    const fetchStats = async () => {
+      try {
+        const res = await api.getDashboardStats();
+        if (isMounted) setData(res);
+      } catch (err) {
+        if (isMounted) setError(err instanceof Error ? err.message : 'Failed to load dashboard statistics');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    void fetchStats();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  const totalBorrowerFunding = useMemo(
-    () => borrowers.reduce((sum, b) => sum + (b.borrowerDetails?.loanAmount ?? 0), 0),
-    [borrowers]
-  );
-  const totalInvestmentFunding = useMemo(
-    () => investors.reduce((sum, i) => sum + (i.investorDetails?.investmentAmount ?? 0), 0),
-    [investors]
-  );
+  if (loading || !data) return <DashboardSkeleton />;
+  if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
 
   const stats = [
-    { label: 'Total Inquiries', value: String(inquiries.length), change: '', trend: 'up' as const, icon: TrendingUp, bg: 'bg-blue-100', iconColor: 'text-blue-600' },
-    { label: 'Active Borrowers', value: String(borrowers.length), change: '', trend: 'up' as const, icon: Users, bg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
-    { label: 'Active Investors', value: String(investors.length), change: '', trend: 'up' as const, icon: DollarSign, bg: 'bg-violet-100', iconColor: 'text-violet-600' },
-    { label: 'Total Borrower Funding', value: formatFunding(totalBorrowerFunding), change: '', trend: 'up' as const, icon: Wallet, bg: 'bg-sky-100', iconColor: 'text-sky-600' },
-    { label: 'Total Investment Funding', value: formatFunding(totalInvestmentFunding), change: '', trend: 'up' as const, icon: Landmark, bg: 'bg-fuchsia-100', iconColor: 'text-fuchsia-600' },
+    { label: 'Total Inquiries', value: data.totalInquiries.toLocaleString('en-IN'), change: '', trend: 'up' as const, icon: TrendingUp, bg: 'bg-blue-100', iconColor: 'text-blue-600' },
+    { label: 'Active Borrowers', value: data.activeBorrowers.toLocaleString('en-IN'), change: '', trend: 'up' as const, icon: Users, bg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
+    { label: 'Active Investors', value: data.activeInvestors.toLocaleString('en-IN'), change: '', trend: 'up' as const, icon: DollarSign, bg: 'bg-violet-100', iconColor: 'text-violet-600' },
+    { label: 'Total Borrower Funding', value: formatFunding(data.totalBorrowerFunding), change: '', trend: 'up' as const, icon: Wallet, bg: 'bg-sky-100', iconColor: 'text-sky-600' },
+    { label: 'Total Investment Funding', value: formatFunding(data.totalInvestmentFunding), change: '', trend: 'up' as const, icon: Landmark, bg: 'bg-fuchsia-100', iconColor: 'text-fuchsia-600' },
   ];
-
-  const trendDays = 14;
-  const inquiryTrendData = useMemo(() => {
-    const days: { date: string; label: string; inquiries: number; borrowers: number; investors: number }[] = [];
-    for (let i = trendDays - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().slice(0, 10);
-      const day = d.getDate();
-      const mon = d.getMonth() + 1;
-      const label = `${day}/${mon}`;
-      const dayInquiries = inquiries.filter((inq) => (inq.createdAt || '').toString().startsWith(dateStr));
-      days.push({
-        date: dateStr,
-        label,
-        inquiries: dayInquiries.length,
-        borrowers: dayInquiries.filter((i) => i.type === 'Borrower').length,
-        investors: dayInquiries.filter((i) => i.type === 'Investor').length,
-      });
-    }
-    return days;
-  }, [inquiries]);
-
-  const pipelineData = useMemo(
-    () => [
-      { name: 'Borrowers', value: borrowers.length, fill: '#0ea5e9' },
-      { name: 'Investors', value: investors.length, fill: '#8b5cf6' },
-    ],
-    [borrowers.length, investors.length]
-  );
-
-  const fundingBarData = useMemo(
-    () => [
-      { name: 'Borrower Funding', amount: totalBorrowerFunding, fill: '#0284c7' },
-      { name: 'Investment Funding', amount: totalInvestmentFunding, fill: '#7c3aed' },
-    ],
-    [totalBorrowerFunding, totalInvestmentFunding]
-  );
-
-  if (loading) return <DashboardSkeleton />;
-  if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -131,7 +102,7 @@ export default function Dashboard() {
           <h3 className="text-base font-semibold text-slate-800 mb-4">Inquiry Trend (Last 14 Days)</h3>
           <div className="w-full h-[300px] min-h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={inquiryTrendData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+              <AreaChart data={data.trend} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
                 <defs>
                   <linearGradient id="fillInquiries" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.35} />
@@ -140,7 +111,7 @@ export default function Dashboard() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="#64748b" tickLine={false} />
-                <YAxis tick={{ fontSize: 12 }} stroke="#64748b" allowDecimals={false} tickLine={false} width={28} />
+                <YAxis tick={{ fontSize: 12 }} stroke="#64748b" allowDecimals={false} tickLine={false} width={38} />
                 <Tooltip
                   contentStyle={{ borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
                   labelStyle={{ fontWeight: 600, marginBottom: 4 }}
@@ -162,7 +133,7 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={pipelineData}
+                  data={data.pipelineData}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
@@ -172,7 +143,7 @@ export default function Dashboard() {
                   nameKey="name"
                   label={({ name, value }) => `${name}: ${value}`}
                 >
-                  {pipelineData.map((entry, index) => (
+                  {data.pipelineData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.fill} stroke="#fff" strokeWidth={2} />
                   ))}
                 </Pie>
@@ -189,7 +160,7 @@ export default function Dashboard() {
         <h3 className="text-base font-semibold text-slate-800 mb-4">Funding Overview</h3>
         <div className="w-full h-[300px] min-h-[300px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={fundingBarData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+            <BarChart data={data.fundingBarData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11 }} stroke="#64748b" tickFormatter={(v) => formatFunding(v)} />
               <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 12 }} stroke="#64748b" />

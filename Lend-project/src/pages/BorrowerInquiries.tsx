@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, Phone, Mail, Pencil, GripVertical } from 'lucide-react';
-import { useInquiryCache } from '../context/InquiryCacheContext';
+
 import { api } from '../api/client';
-import type { Inquiry } from '../types';
+import type { Inquiry, StageSummaryItem } from '../types';
 import ProposalModal from '../components/ProposalModal';
 import { formatCurrencyShort } from '../utils/formatters';
 
@@ -24,12 +24,60 @@ const STAGE_COLUMNS: { key: string; label: string; color: string; dot: string; c
 
 export default function BorrowerInquiries() {
   const navigate = useNavigate();
-  const { inquiries, loading, error, refetch } = useInquiryCache();
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [summary, setSummary] = useState<StageSummaryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [stageUpdating, setStageUpdating] = useState<string | null>(null);
   const dragCounter = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [sumRes, inqRes] = await Promise.all([
+        api.getStageSummary('Borrower'),
+        api.getInquiries({
+          type: 'Borrower',
+          limit: 100,
+          search: debouncedSearch.trim() || undefined,
+        }),
+      ]);
+      setSummary(sumRes);
+      if (inqRes && 'data' in inqRes) {
+        setInquiries(inqRes.data);
+      } else if (Array.isArray(inqRes)) {
+        setInquiries(inqRes);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load inquiries');
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const summaryMap = useMemo(() => {
+    const map = new Map<string, StageSummaryItem>();
+    for (const item of summary) {
+      map.set(item.stage, item);
+    }
+    return map;
+  }, [summary]);
+
+  const borrowerInquiries = inquiries;
 
   // Proposal modal state (drag → PROPOSED)
   const [proposalInquiry, setProposalInquiry] = useState<Inquiry | null>(null);
@@ -47,13 +95,7 @@ export default function BorrowerInquiries() {
     notes: '',
   });
 
-  const borrowerInquiries = inquiries
-    .filter((i) => i.type === 'Borrower')
-    .filter((i) => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return i.name.toLowerCase().includes(q) || i.mobile.includes(q) || i.email.toLowerCase().includes(q);
-    });
+
 
   // ─── Drag & Drop handlers ─────────────────────────────────
   const handleDragStart = (e: React.DragEvent, inqId: string) => {
@@ -116,7 +158,7 @@ export default function BorrowerInquiries() {
         loanPurpose: approveInquiry.notes || '',
         notes: approveForm.notes,
       });
-      await refetch();
+      await loadData();
       setApproveInquiry(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to approve loan');
@@ -150,7 +192,7 @@ export default function BorrowerInquiries() {
     setStageUpdating(inqId);
     try {
       await api.updateInquiryStage(inqId, targetStage);
-      await refetch();
+      await loadData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update stage');
     } finally {
@@ -190,6 +232,9 @@ export default function BorrowerInquiries() {
         {STAGE_COLUMNS.map((col) => {
           const items = borrowerInquiries.filter((i) => i.stage === col.key);
           const colTotal = items.reduce((s, i) => s + (i.borrowerDetails?.loanAmount || 0), 0);
+          const stageSummary = summaryMap.get(col.key);
+          const displayCount = stageSummary ? stageSummary.count : items.length;
+          const displayTotal = stageSummary ? stageSummary.totalAmount : colTotal;
           return (
             <div
               key={col.key}
@@ -206,9 +251,9 @@ export default function BorrowerInquiries() {
                   <div className="flex items-center gap-2">
                     <span className={`w-2.5 h-2.5 rounded-full ${col.dot}`} />
                     <span className="text-sm font-semibold text-slate-800">{col.label}</span>
-                    <span className="text-xs bg-white/80 text-slate-600 font-medium px-1.5 py-0.5 rounded-full border border-slate-200">{items.length}</span>
+                    <span className="text-xs bg-white/80 text-slate-600 font-medium px-1.5 py-0.5 rounded-full border border-slate-200">{displayCount.toLocaleString('en-IN')}</span>
                   </div>
-                  {colTotal > 0 && <span className="text-xs font-semibold text-slate-600">{formatAmount(colTotal)}</span>}
+                  {displayTotal > 0 && <span className="text-xs font-semibold text-slate-600">{formatAmount(displayTotal)}</span>}
                 </div>
               </div>
               {/* Cards */}
@@ -292,7 +337,7 @@ export default function BorrowerInquiries() {
         <ProposalModal
           inquiry={proposalInquiry}
           onClose={() => setProposalInquiry(null)}
-          onDataChanged={() => refetch()}
+          onDataChanged={() => void loadData()}
         />
       )}
 

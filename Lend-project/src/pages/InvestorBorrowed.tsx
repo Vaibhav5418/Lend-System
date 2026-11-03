@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Filter, Eye, Calendar, TrendingUp, Users, CreditCard } from 'lucide-react';
+import { Filter, Eye, Calendar, TrendingUp, Users, CreditCard, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { InvestorInvestment, InvestorPayment, UpcomingPayout, PaymentMode } from '../types';
 import { formatIndianShort, formatCurrencyShort } from '../utils/formatters';
@@ -22,6 +22,12 @@ export default function InvestorBorrowed() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [summary, setSummary] = useState({ totalInvested: 0, monthlyPayout: 0, active: 0, matured: 0 });
   const [selectedInv, setSelectedInv] = useState<InvestorInvestment | null>(null);
   const [paymentInv, setPaymentInv] = useState<InvestorInvestment | null>(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
@@ -44,14 +50,35 @@ export default function InvestorBorrowed() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const loadData = useCallback(async () => {
     try {
-      const [invData, payouts] = await Promise.all([
-        api.getInvestorInvestments(),
+      const [invRes, payouts] = await Promise.all([
+        api.getInvestorInvestments({
+          page: currentPage,
+          limit: pageSize,
+          status: statusFilter !== 'All' ? statusFilter : undefined,
+          search: debouncedSearch.trim() || undefined,
+        }),
         api.getUpcomingPayouts(),
       ]);
       if (isMountedRef.current) {
-        setInvestments(invData);
+        if (invRes && 'data' in invRes && 'pagination' in invRes) {
+          setInvestments(invRes.data);
+          setTotal(invRes.pagination.total);
+          setTotalPages(invRes.pagination.totalPages);
+          if (invRes.summary) setSummary(invRes.summary);
+        } else if (Array.isArray(invRes)) {
+          setInvestments(invRes);
+          setTotal(invRes.length);
+          setTotalPages(Math.max(1, Math.ceil(invRes.length / pageSize)));
+        }
         setUpcomingPayouts(payouts);
       }
     } catch (err) {
@@ -63,7 +90,7 @@ export default function InvestorBorrowed() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [currentPage, pageSize, statusFilter, debouncedSearch]);
 
   useEffect(() => {
     void loadData();
@@ -110,18 +137,11 @@ export default function InvestorBorrowed() {
     }
   };
 
-  const filtered = investments
-    .filter((i) => statusFilter === 'All' || i.status === statusFilter)
-    .filter((i) => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return i.investorName.toLowerCase().includes(q) || i.id.toLowerCase().includes(q);
-    });
-
+  const paginatedInvestments = investments;
   const totals = {
-    invested: investments.filter(i => i.status === 'Active').reduce((s, i) => s + i.investedAmount, 0),
-    monthlyInterest: investments.filter(i => i.status === 'Active').reduce((s, i) => s + i.monthlyInterest, 0),
-    active: investments.filter(i => i.status === 'Active').length,
+    invested: summary.totalInvested,
+    monthlyInterest: summary.monthlyPayout,
+    active: summary.active,
   };
 
   if (loading) return <div className="p-6 text-slate-500">Loading active investments...</div>;
@@ -195,12 +215,12 @@ export default function InvestorBorrowed() {
             type="text"
             placeholder="Search investor name or ID..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
             className="w-full sm:w-auto min-w-0 px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
           />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
             className="px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
           >
             <option value="All">All Status</option>
@@ -230,7 +250,7 @@ export default function InvestorBorrowed() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filtered.map((inv) => (
+              {paginatedInvestments.map((inv) => (
                 <tr key={inv.id} className="hover:bg-violet-50/40 transition-colors">
                   <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-violet-600">{inv.id}</td>
                   <td className="px-4 py-3">
@@ -271,7 +291,7 @@ export default function InvestorBorrowed() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {investments.length === 0 && (
                 <tr>
                   <td colSpan={10} className="px-4 py-12 text-center text-slate-500">No investments found</td>
                 </tr>
@@ -279,6 +299,76 @@ export default function InvestorBorrowed() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {total > 0 && (
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-slate-700">
+            <div className="flex items-center gap-2">
+              <span>
+                Showing <span className="font-semibold">{((currentPage - 1) * pageSize) + 1}</span> to{' '}
+                <span className="font-semibold">{Math.min(currentPage * pageSize, total).toLocaleString()}</span> of{' '}
+                <span className="font-semibold">{total.toLocaleString()}</span> investments
+              </span>
+              <div className="flex items-center gap-1.5 ml-4">
+                <span className="text-xs text-slate-500">Rows:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-violet-500"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First Page"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-3 py-1 font-medium text-xs bg-white border border-slate-300 rounded">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last Page"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detail Modal */}

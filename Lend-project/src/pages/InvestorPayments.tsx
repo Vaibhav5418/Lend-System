@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Filter } from 'lucide-react';
+import { Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { InvestorPayment } from '../types';
 
@@ -21,14 +21,43 @@ export default function InvestorPayments() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [summary, setSummary] = useState({ totalPaid: 0, totalPending: 0 });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     let isMounted = true;
     const load = async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const payData = await api.getInvestorPayments();
+        const res = await api.getInvestorPayments({
+          page: currentPage,
+          limit: pageSize,
+          status: statusFilter !== 'All' ? statusFilter : undefined,
+          search: debouncedSearch.trim() || undefined,
+        });
         if (isMounted) {
-          setPayments(payData);
+          if (res && 'data' in res && 'pagination' in res) {
+            setPayments(res.data);
+            setTotal(res.pagination.total);
+            setTotalPages(res.pagination.totalPages);
+            if (res.summary) setSummary(res.summary);
+          } else if (Array.isArray(res)) {
+            setPayments(res);
+            setTotal(res.length);
+            setTotalPages(Math.max(1, Math.ceil(res.length / pageSize)));
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -44,18 +73,11 @@ export default function InvestorPayments() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentPage, pageSize, statusFilter, debouncedSearch]);
 
-  const filtered = payments
-    .filter((p) => statusFilter === 'All' || p.status === statusFilter)
-    .filter((p) => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return p.investorName.toLowerCase().includes(q) || p.investmentId.toLowerCase().includes(q) || p.id.toLowerCase().includes(q);
-    });
-
-  const totalPaid = payments.filter(p => p.status === 'Paid').reduce((s, p) => s + p.amountPaid, 0);
-  const totalPending = payments.filter(p => p.status === 'Pending' || p.status === 'Overdue').reduce((s, p) => s + p.pendingInterest, 0);
+  const paginatedPayments = payments;
+  const totalPaid = summary.totalPaid;
+  const totalPending = summary.totalPending;
 
   if (loading) return <div className="p-6 text-slate-500">Loading investor payments...</div>;
   if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
@@ -91,12 +113,12 @@ export default function InvestorPayments() {
             placeholder="Search investor name or ID..."
             aria-label="Search investor name or ID"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
             className="w-full sm:w-auto min-w-0 px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 text-sm"
           />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
             aria-label="Filter payments by status"
             className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
           >
@@ -126,7 +148,7 @@ export default function InvestorPayments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filtered.map((p) => (
+              {paginatedPayments.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 text-sm font-medium text-violet-600">{p.id}</td>
                   <td className="px-4 py-3 text-sm text-slate-700">{p.investmentId}</td>
@@ -146,12 +168,82 @@ export default function InvestorPayments() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {payments.length === 0 && (
                 <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">No payments found</td></tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {total > 0 && (
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-slate-700">
+            <div className="flex items-center gap-2">
+              <span>
+                Showing <span className="font-semibold">{((currentPage - 1) * pageSize) + 1}</span> to{' '}
+                <span className="font-semibold">{Math.min(currentPage * pageSize, total).toLocaleString()}</span> of{' '}
+                <span className="font-semibold">{total.toLocaleString()}</span> payments
+              </span>
+              <div className="flex items-center gap-1.5 ml-4">
+                <span className="text-xs text-slate-500">Rows:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-violet-500"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First Page"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-3 py-1 font-medium text-xs bg-white border border-slate-300 rounded">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last Page"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

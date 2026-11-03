@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import Staff from '../models/Staff.js';
 import { sanitizeLog } from '../utils/security.js';
+import { cacheMiddleware } from '../middleware/cacheMiddleware.js';
 
 const router = Router();
 
 const DEFAULT_STAFF = Object.freeze(['Amit Shah', 'Neha Kapoor', 'Rahul Verma']);
 
-router.get('/', async (_req, res) => {
+router.get('/', cacheMiddleware({ ttl: 600, tags: ['staff'] }), async (_req, res) => {
   try {
     const list = await Staff.find().sort({ order: 1 }).select('name').lean();
     const names = list.length > 0 ? list.map((s) => s.name) : DEFAULT_STAFF;
