@@ -1,13 +1,14 @@
+
 name: Deploy to AWS EC2
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
-  # ─── 1. Build and Validation Check ───────────────────────────────
+  # ─── 1. Build and Validation Check ───────────────────────
   validate:
     name: Build & Validate
     runs-on: ubuntu-latest
@@ -36,7 +37,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
 
-  # ─── 2. Deploy to EC2 via SSH ─────────────────────────────────────
+  # ─── 2. Deploy to EC2 via SSH ───────────────────────────
   deploy:
     name: Deploy to EC2
     needs: validate
@@ -44,6 +45,64 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # ─── 3. Test GitHub Runner to EC2 Connectivity ──────
+      - name: Debug EC2 SSH Connectivity
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "======================================"
+          echo " GitHub Runner Network Diagnostics"
+          echo "======================================"
+
+          echo "GitHub Runner Public IP:"
+          curl -s --max-time 15 https://api.ipify.org
+          echo ""
+
+          echo "--------------------------------------"
+          echo "Testing EC2 SSH connectivity..."
+          echo "Target: $EC2_HOST"
+          echo "Port: 22"
+          echo "--------------------------------------"
+
+          python3 - <<'PY'
+          import os
+          import socket
+          import sys
+
+          host = os.environ["EC2_HOST"]
+
+          try:
+              print(f"Resolving host: {host}")
+              ip = socket.gethostbyname(host)
+              print(f"Resolved IP: {ip}")
+
+              print("Connecting to EC2 on port 22...")
+
+              sock = socket.create_connection(
+                  (host, 22),
+                  timeout=20
+              )
+
+              print("SUCCESS: EC2 SSH port 22 is reachable!")
+              sock.close()
+
+          except socket.timeout:
+              print("FAILED: Connection timed out.")
+              sys.exit(1)
+
+          except OSError as error:
+              print(f"FAILED: {error}")
+              sys.exit(1)
+          PY
+
+          echo "======================================"
+          echo " Connectivity test completed"
+          echo "======================================"
+
+      # ─── 4. Deploy on EC2 ──────────────────────────────
       - name: Deploy on AWS EC2
         uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         with:
@@ -51,23 +110,26 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
+          timeout: 30s
+          command_timeout: 10m
           script: |
             set -e
+
             echo "🚀 Starting deployment on EC2..."
-            
+
             # Navigate to project directory
             cd /var/www/lend-system
-            
+
             # Pull latest changes from main branch
             echo "📥 Pulling latest code..."
             git reset --hard HEAD
             git pull origin main
-            
+
             # Backend Setup
             echo "⚙️ Updating backend..."
             cd /var/www/lend-system/Lend-server
             npm ci --omit=dev --ignore-scripts
-            
+
             # Restart or Start Backend with PM2
             if pm2 describe lend-server > /dev/null 2>&1; then
               echo "🔄 Reloading PM2 backend..."
@@ -79,23 +141,26 @@ jobs:
               echo "▶️ Starting PM2 backend..."
               pm2 start server.js --name lend-server
             fi
+
             pm2 save
-            
+
             # Frontend Setup & Build
             echo "🎨 Building frontend..."
             cd /var/www/lend-system/Lend-project
             npm ci --ignore-scripts
             npm run build
-            
+
             # Update Nginx config and permissions
             echo "🌐 Updating Nginx..."
             cd /var/www/lend-system
+
             if [ -f "nginx.conf" ]; then
               sudo cp nginx.conf /etc/nginx/sites-available/default
               sudo ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
             fi
+
             sudo chmod -R 755 /var/www/lend-system
             sudo nginx -t
             sudo systemctl reload nginx
-            
+
             echo "✅ Deployment completed successfully!"
